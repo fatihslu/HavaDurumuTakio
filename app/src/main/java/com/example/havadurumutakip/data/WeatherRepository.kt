@@ -2,6 +2,7 @@ package com.example.havadurumutakip.data
 
 import android.content.Context
 import com.example.havadurumutakip.cosa.CosaApiClient
+import com.example.havadurumutakip.cosa.CosaDailyReport
 import com.example.havadurumutakip.cosa.CosaEndpointDetail
 import com.example.havadurumutakip.cosa.CosaPreferences
 import com.example.havadurumutakip.model.WeatherMeasurement
@@ -27,6 +28,21 @@ object WeatherRepository {
         _refreshTick.value = System.currentTimeMillis()
     }
 
+    suspend fun refreshCosaReportOnly(context: Context): Result<CosaDailyReport?> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val appContext = context.applicationContext
+                val report = CosaApiClient.fetchSavedReport(appContext)
+                if (report != null) {
+                    val db = WeatherDatabaseHelper(appContext)
+                    db.upsertCosaReport(report)
+                    db.close()
+                    notifyChanged()
+                }
+                report
+            }
+        }
+
     suspend fun measureAndSaveAll(context: Context): Result<List<WeatherMeasurement>> =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -41,11 +57,13 @@ object WeatherRepository {
                 val nowTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
                 val nowTs = System.currentTimeMillis()
 
-                val cosaDetail: CosaEndpointDetail? = coroutineScope {
-                    async {
-                        runCatching { CosaApiClient.fetchSavedDeviceDetail(appContext) }.getOrNull()
-                    }.await()
+                val cosaPair = coroutineScope {
+                    val d = async { runCatching { CosaApiClient.fetchSavedDeviceDetail(appContext) }.getOrNull() }
+                    val r = async { runCatching { CosaApiClient.fetchSavedReport(appContext) }.getOrNull() }
+                    d.await() to r.await()
                 }
+                val cosaDetail = cosaPair.first
+                val cosaReport = cosaPair.second
 
                 val fetchedOutdoor = coroutineScope {
                     locations.map { loc ->
@@ -53,9 +71,7 @@ object WeatherRepository {
                             runCatching {
                                 val w = OpenMeteoClient.fetchCurrentWeather(loc.latitude, loc.longitude)
                                 val extraObj = runCatching { JSONObject(w.extraJson) }.getOrElse { JSONObject() }
-                                if (cosaDetail != null) {
-                                    putCosaFields(extraObj, cosaDetail)
-                                }
+                                if (cosaDetail != null) putCosaFields(extraObj, cosaDetail)
                                 WeatherMeasurement(
                                     dateKey = nowDate,
                                     timeLabel = nowTime,
@@ -116,9 +132,8 @@ object WeatherRepository {
                 }
 
                 val db = WeatherDatabaseHelper(appContext)
-                for (m in toInsert) {
-                    db.insertMeasurement(m)
-                }
+                for (m in toInsert) db.insertMeasurement(m)
+                if (cosaReport != null) db.upsertCosaReport(cosaReport)
                 db.close()
 
                 WeatherWidgetProvider.updateAllWidgets(appContext)

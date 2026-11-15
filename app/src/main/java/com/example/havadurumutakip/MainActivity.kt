@@ -36,8 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.havadurumutakip.cosa.CosaApiClient
+import com.example.havadurumutakip.cosa.CosaDailyReport
 import com.example.havadurumutakip.cosa.CosaEndpointSummary
 import com.example.havadurumutakip.cosa.CosaPreferences
+import com.example.havadurumutakip.cosa.GasTariffPreferences
 import com.example.havadurumutakip.data.LocationPreferences
 import com.example.havadurumutakip.data.WeatherDatabaseHelper
 import com.example.havadurumutakip.data.WeatherRepository
@@ -50,6 +52,8 @@ import com.example.havadurumutakip.model.SavedLocation
 import com.example.havadurumutakip.model.WeatherMeasurement
 import com.example.havadurumutakip.model.WeatherMetric
 import com.example.havadurumutakip.network.OpenMeteoClient
+import com.example.havadurumutakip.ui.AnalysisScreen
+import com.example.havadurumutakip.ui.formatDuration
 import com.example.havadurumutakip.widget.WeatherWidgetProvider
 import com.example.havadurumutakip.worker.WeatherSyncWorker
 import kotlinx.coroutines.Dispatchers
@@ -81,9 +85,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = glassColors) {
-                GlassBackground {
-                    WeatherTrackerApp()
-                }
+                GlassBackground { WeatherTrackerApp() }
             }
         }
     }
@@ -92,47 +94,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun GlassBackground(content: @Composable BoxScope.() -> Unit) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF091024),
-                        Color(0xFF13224A),
-                        Color(0xFF1C1C4C),
-                        Color(0xFF0B1325)
-                    )
-                )
-            )
+        modifier = Modifier.fillMaxSize().background(
+            Brush.verticalGradient(colors = listOf(Color(0xFF091024), Color(0xFF13224A), Color(0xFF1C1C4C), Color(0xFF0B1325)))
+        )
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x5538BDF8), Color.Transparent),
-                    center = Offset(size.width * 0.15f, size.height * 0.16f),
-                    radius = size.width * 0.78f
-                ),
-                radius = size.width * 0.78f,
-                center = Offset(size.width * 0.15f, size.height * 0.16f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x4A818CF8), Color.Transparent),
-                    center = Offset(size.width * 0.88f, size.height * 0.44f),
-                    radius = size.width * 0.72f
-                ),
-                radius = size.width * 0.72f,
-                center = Offset(size.width * 0.88f, size.height * 0.44f)
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0x382DD4BF), Color.Transparent),
-                    center = Offset(size.width * 0.25f, size.height * 0.86f),
-                    radius = size.width * 0.68f
-                ),
-                radius = size.width * 0.68f,
-                center = Offset(size.width * 0.25f, size.height * 0.86f)
-            )
+            drawCircle(brush = Brush.radialGradient(colors = listOf(Color(0x5538BDF8), Color.Transparent), center = Offset(size.width * 0.15f, size.height * 0.16f), radius = size.width * 0.78f), radius = size.width * 0.78f, center = Offset(size.width * 0.15f, size.height * 0.16f))
+            drawCircle(brush = Brush.radialGradient(colors = listOf(Color(0x4A818CF8), Color.Transparent), center = Offset(size.width * 0.88f, size.height * 0.44f), radius = size.width * 0.72f), radius = size.width * 0.72f, center = Offset(size.width * 0.88f, size.height * 0.44f))
+            drawCircle(brush = Brush.radialGradient(colors = listOf(Color(0x382DD4BF), Color.Transparent), center = Offset(size.width * 0.25f, size.height * 0.86f), radius = size.width * 0.68f), radius = size.width * 0.68f, center = Offset(size.width * 0.25f, size.height * 0.86f))
         }
         content()
     }
@@ -149,27 +118,15 @@ fun GlassCard(
 ) {
     val shape = RoundedCornerShape(cornerRadius)
     val fillBrush = when {
-        warmHighlight -> Brush.linearGradient(
-            colors = listOf(Color(0x3DFB923C), Color(0x22F43F5E), Color(0x14FFFFFF))
-        )
-        highlight -> Brush.linearGradient(
-            colors = listOf(Color(0x3D38BDF8), Color(0x24818CF8), Color(0x14FFFFFF))
-        )
-        else -> Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.06f))
-        )
+        warmHighlight -> Brush.linearGradient(colors = listOf(Color(0x3DFB923C), Color(0x22F43F5E), Color(0x14FFFFFF)))
+        highlight -> Brush.linearGradient(colors = listOf(Color(0x3D38BDF8), Color(0x24818CF8), Color(0x14FFFFFF)))
+        else -> Brush.verticalGradient(colors = listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.06f)))
     }
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.24f))
-    )
+    val borderBrush = Brush.linearGradient(colors = listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.24f)))
 
     Column(
-        modifier = modifier
-            .clip(shape)
-            .background(brush = fillBrush)
-            .border(width = 1.dp, brush = borderBrush, shape = shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(16.dp),
+        modifier = modifier.clip(shape).background(brush = fillBrush).border(width = 1.dp, brush = borderBrush, shape = shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(16.dp),
         content = content
     )
 }
@@ -184,34 +141,16 @@ fun GlassChipButton(
     accent: Color = Color.White
 ) {
     val shape = RoundedCornerShape(50)
-    val bgBrush = if (selected) {
-        Brush.verticalGradient(colors = listOf(Color(0x6638BDF8), Color(0x3338BDF8)))
-    } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = if (enabled) 0.20f else 0.08f),
-                Color.White.copy(alpha = if (enabled) 0.08f else 0.04f)
-            )
-        )
-    }
+    val bgBrush = if (selected) Brush.verticalGradient(colors = listOf(Color(0x6638BDF8), Color(0x3338BDF8)))
+    else Brush.verticalGradient(colors = listOf(Color.White.copy(alpha = if (enabled) 0.20f else 0.08f), Color.White.copy(alpha = if (enabled) 0.08f else 0.04f)))
     val borderColor = if (selected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.30f)
 
     Box(
-        modifier = modifier
-            .clip(shape)
-            .background(bgBrush)
-            .border(1.dp, borderColor, shape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+        modifier = modifier.clip(shape).background(bgBrush).border(1.dp, borderColor, shape)
+            .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            color = if (enabled) accent else Color.White.copy(alpha = 0.45f),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1
-        )
+        Text(text = text, color = if (enabled) accent else Color.White.copy(alpha = 0.45f), fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
@@ -224,6 +163,7 @@ fun WeatherTrackerApp() {
     val locPrefs = remember { LocationPreferences(context) }
     val metricPrefs = remember { MetricPreferences(context) }
     val cosaPrefs = remember { CosaPreferences(context) }
+    val tariffPrefs = remember { GasTariffPreferences(context) }
 
     var trackedLocations by remember { mutableStateOf(locPrefs.getLocations()) }
     var primaryLocName by remember { mutableStateOf(locPrefs.getPrimaryLocationName()) }
@@ -231,11 +171,12 @@ fun WeatherTrackerApp() {
     var cosaConnected by remember { mutableStateOf(cosaPrefs.isConnected()) }
     var cosaName by remember { mutableStateOf(cosaPrefs.getEndpointName()) }
     var latestCosa by remember { mutableStateOf<WeatherMeasurement?>(null) }
-
+    var latestReport by remember { mutableStateOf<CosaDailyReport?>(null) }
     var latestByLocation by remember { mutableStateOf<Map<String, WeatherMeasurement?>>(emptyMap()) }
     var dailySummaries by remember { mutableStateOf<List<DailySummary>>(emptyList()) }
     var selectedFilterLocation by remember { mutableStateOf<String?>(null) }
 
+    var showAnalysis by remember { mutableStateOf(false) }
     var selectedDay by remember { mutableStateOf<DailySummary?>(null) }
     var dayPendingDelete by remember { mutableStateOf<DailySummary?>(null) }
     var locationPendingRemove by remember { mutableStateOf<SavedLocation?>(null) }
@@ -248,9 +189,7 @@ fun WeatherTrackerApp() {
     var statusError by remember { mutableStateOf<String?>(null) }
 
     val createExcelLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     ) { uri ->
         if (uri != null) {
             scope.launch {
@@ -260,18 +199,17 @@ fun WeatherTrackerApp() {
                         val db = WeatherDatabaseHelper(context)
                         val summaries = db.getDailySummaries()
                         val measurements = db.getAllMeasurements()
+                        val reports = db.getCosaReports()
+                        val bands = db.getTemperatureBandStats(locPrefs.getPrimaryLocation()?.name)
                         db.close()
                         context.contentResolver.openOutputStream(uri)?.use { out ->
-                            ExcelExporter.writeXlsx(out, summaries, measurements, selectedMetrics)
+                            ExcelExporter.writeXlsx(out, summaries, measurements, selectedMetrics, reports, bands, tariffPrefs.getM3PerHour(), tariffPrefs.getPricePerM3())
                         } ?: error("Dosya açılamadı")
                     }
                 }
                 isExporting = false
-                result.onSuccess {
-                    Toast.makeText(context, "Excel dosyası kaydedildi!", Toast.LENGTH_LONG).show()
-                }.onFailure {
-                    Toast.makeText(context, "Hata: ${it.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
+                result.onSuccess { Toast.makeText(context, "Excel dosyası kaydedildi!", Toast.LENGTH_LONG).show() }
+                    .onFailure { Toast.makeText(context, "Hata: ${it.localizedMessage}", Toast.LENGTH_LONG).show() }
             }
         }
     }
@@ -284,12 +222,13 @@ fun WeatherTrackerApp() {
                     val db = WeatherDatabaseHelper(context)
                     val summaries = db.getDailySummaries()
                     val measurements = db.getAllMeasurements()
+                    val reports = db.getCosaReports()
+                    val bands = db.getTemperatureBandStats(locPrefs.getPrimaryLocation()?.name)
                     db.close()
-
                     val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
                     val file = File(exportDir, "hava_durumu_${LocalDate.now()}.xlsx")
                     file.outputStream().use { out ->
-                        ExcelExporter.writeXlsx(out, summaries, measurements, selectedMetrics)
+                        ExcelExporter.writeXlsx(out, summaries, measurements, selectedMetrics, reports, bands, tariffPrefs.getM3PerHour(), tariffPrefs.getPricePerM3())
                     }
                     FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                 }
@@ -302,9 +241,7 @@ fun WeatherTrackerApp() {
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(shareIntent, "Excel Paylaş / Aç"))
-            }.onFailure {
-                Toast.makeText(context, "Hata: ${it.localizedMessage}", Toast.LENGTH_LONG).show()
-            }
+            }.onFailure { Toast.makeText(context, "Hata: ${it.localizedMessage}", Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -320,13 +257,10 @@ fun WeatherTrackerApp() {
             val db = WeatherDatabaseHelper(context)
             dailySummaries = db.getDailySummaries()
             val map = mutableMapOf<String, WeatherMeasurement?>()
-            for (loc in trackedLocations) {
-                map[loc.name] = db.getLatestMeasurementForLocation(loc.name)
-            }
+            for (loc in trackedLocations) map[loc.name] = db.getLatestMeasurementForLocation(loc.name)
             latestByLocation = map
-            latestCosa = if (cosaConnected) {
-                db.getLatestMeasurementForLocation("🏠 Cosa: $cosaName")
-            } else null
+            latestCosa = if (cosaConnected) db.getLatestMeasurementForLocation("🏠 Cosa: $cosaName") else null
+            latestReport = if (cosaConnected) db.getLatestCosaReport() else null
             db.close()
         }
     }
@@ -339,48 +273,33 @@ fun WeatherTrackerApp() {
             anyMissing && trackedLocations.isNotEmpty()
         }
         if (needsInitial) {
-            isMeasuring = true
-            WeatherRepository.measureAndSaveAll(context)
-            isMeasuring = false
+            isMeasuring = true; WeatherRepository.measureAndSaveAll(context); isMeasuring = false
         }
     }
 
-    val filterNames = remember(dailySummaries) {
-        dailySummaries.map { it.locationName }.distinct()
-    }
+    val filterNames = remember(dailySummaries) { dailySummaries.map { it.locationName }.distinct() }
     val visibleSummaries = remember(dailySummaries, selectedFilterLocation) {
-        if (selectedFilterLocation == null) dailySummaries
-        else dailySummaries.filter { it.locationName == selectedFilterLocation }
+        if (selectedFilterLocation == null) dailySummaries else dailySummaries.filter { it.locationName == selectedFilterLocation }
     }
 
-    if (selectedDay != null) {
+    if (showAnalysis) {
+        BackHandler { showAnalysis = false }
+        AnalysisScreen(onBack = { showAnalysis = false })
+    } else if (selectedDay != null) {
         BackHandler { selectedDay = null }
-        DayDetailScreen(
-            summary = selectedDay!!,
-            selectedMetrics = selectedMetrics,
-            onOpenMetricMenu = { showMetricDialog = true },
-            onBack = { selectedDay = null }
-        )
+        DayDetailScreen(summary = selectedDay!!, selectedMetrics = selectedMetrics, onOpenMetricMenu = { showMetricDialog = true }, onBack = { selectedDay = null })
     } else {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        titleContentColor = Color.White
-                    ),
-                    title = {
-                        Text("Hava Durumu Takip", fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1)
-                    }
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, titleContentColor = Color.White),
+                    title = { Text("Hava Durumu Takip", fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1) }
                 )
             }
         ) { padding ->
             LazyColumn(
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
+                modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp)
             ) {
@@ -388,37 +307,27 @@ fun WeatherTrackerApp() {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
                             GlassChipButton(
-                                text = if (cosaConnected) "🔥 Cosa Bağlı" else "🏠 Cosa Bağla",
+                                text = if (cosaConnected) "🔥 Cosa" else "🏠 Cosa Bağla",
                                 onClick = { showCosaDialog = true },
                                 selected = cosaConnected,
                                 accent = if (cosaConnected) Color(0xFFFDBA74) else Color.White
                             )
                         }
-                        item {
-                            GlassChipButton(
-                                text = "⚙️ Veriler (${selectedMetrics.size}/${WeatherMetric.entries.size})",
-                                onClick = { showMetricDialog = true },
-                                selected = true
-                            )
-                        }
-                        item {
-                            GlassChipButton(text = "➕ Konum", onClick = { showLocationDialog = true })
-                        }
-                        item {
-                            GlassChipButton(text = "📊 Excel", onClick = { showExportDialog = true })
-                        }
+                        item { GlassChipButton(text = "📈 Analiz", onClick = { showAnalysis = true }) }
+                        item { GlassChipButton(text = "⚙️ Veriler (${selectedMetrics.size}/${WeatherMetric.entries.size})", onClick = { showMetricDialog = true }, selected = true) }
+                        item { GlassChipButton(text = "➕ Konum", onClick = { showLocationDialog = true }) }
+                        item { GlassChipButton(text = "📊 Excel", onClick = { showExportDialog = true }) }
                     }
                 }
 
                 if (cosaConnected) {
                     item {
                         CosaLiveCard(
-                            deviceName = cosaName,
-                            latest = latestCosa,
+                            deviceName = cosaName, latest = latestCosa, report = latestReport,
+                            m3PerHour = tariffPrefs.getM3PerHour(), pricePerM3 = tariffPrefs.getPricePerM3(),
+                            onOpenAnalysis = { showAnalysis = true },
                             onDisconnect = {
-                                cosaPrefs.clear()
-                                reloadLocationsFromPrefs()
-                                latestCosa = null
+                                cosaPrefs.clear(); reloadLocationsFromPrefs(); latestCosa = null; latestReport = null
                                 WeatherWidgetProvider.updateAllWidgets(context)
                                 Toast.makeText(context, "Cosa bağlantısı kesildi", Toast.LENGTH_SHORT).show()
                             }
@@ -427,32 +336,19 @@ fun WeatherTrackerApp() {
                 }
 
                 item {
-                    Text(
-                        text = "Takip Edilen Konumlar (${trackedLocations.size})",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
-                    )
+                    Text("Takip Edilen Konumlar (${trackedLocations.size})", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 }
 
                 if (trackedLocations.isEmpty()) {
-                    item {
-                        GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) {
-                            Text("Henüz takip edilen konum yok. Yukarıdan '➕ Konum' ile ekleyin.", color = Color.White)
-                        }
-                    }
+                    item { GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) { Text("Henüz takip edilen konum yok. Yukarıdan '➕ Konum' ile ekleyin.", color = Color.White) } }
                 } else {
                     items(trackedLocations, key = { it.name }) { loc ->
                         val latest = latestByLocation[loc.name]
                         val isWidgetLoc = loc.name == primaryLocName
                         TrackedLocationCard(
-                            location = loc,
-                            latest = latest,
-                            selectedMetrics = selectedMetrics,
-                            isWidgetPrimary = isWidgetLoc,
+                            location = loc, latest = latest, selectedMetrics = selectedMetrics, isWidgetPrimary = isWidgetLoc,
                             onSetWidgetPrimary = {
-                                locPrefs.setPrimaryLocationName(loc.name)
-                                primaryLocName = loc.name
+                                locPrefs.setPrimaryLocationName(loc.name); primaryLocName = loc.name
                                 WeatherWidgetProvider.updateAllWidgets(context)
                                 Toast.makeText(context, "Widget konumu: ${loc.name}", Toast.LENGTH_SHORT).show()
                             },
@@ -462,16 +358,13 @@ fun WeatherTrackerApp() {
                 }
 
                 item {
-                    if (statusError != null) {
-                        Text("Hata: $statusError", color = Color(0xFFFDA4AF), fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
-                    }
+                    if (statusError != null) Text("Hata: $statusError", color = Color(0xFFFDA4AF), fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
                     GlassChipButton(
                         text = if (isMeasuring) "Ölçülüyor..." else "↻ Tümünü Ölç ve Kaydet (Hava + Cosa)",
                         enabled = !isMeasuring && (trackedLocations.isNotEmpty() || cosaConnected),
                         onClick = {
                             scope.launch {
-                                isMeasuring = true
-                                statusError = null
+                                isMeasuring = true; statusError = null
                                 val res = WeatherRepository.measureAndSaveAll(context)
                                 res.onFailure { statusError = it.localizedMessage }
                                 isMeasuring = false
@@ -482,45 +375,22 @@ fun WeatherTrackerApp() {
                     )
                 }
 
-                item {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Günlük Geçmiş", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                }
+                item { Spacer(modifier = Modifier.height(4.dp)); Text("Günlük Geçmiş", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White) }
 
                 if (filterNames.size > 1) {
                     item {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item {
-                                GlassChipButton(
-                                    text = "Tümü",
-                                    selected = selectedFilterLocation == null,
-                                    onClick = { selectedFilterLocation = null }
-                                )
-                            }
-                            items(filterNames) { name ->
-                                GlassChipButton(
-                                    text = name.substringBefore(","),
-                                    selected = selectedFilterLocation == name,
-                                    onClick = { selectedFilterLocation = name }
-                                )
-                            }
+                            item { GlassChipButton(text = "Tümü", selected = selectedFilterLocation == null, onClick = { selectedFilterLocation = null }) }
+                            items(filterNames) { name -> GlassChipButton(text = name.substringBefore(","), selected = selectedFilterLocation == name, onClick = { selectedFilterLocation = name }) }
                         }
                     }
                 }
 
                 if (visibleSummaries.isEmpty()) {
-                    item {
-                        GlassCard(modifier = Modifier.fillMaxWidth()) {
-                            Text("Henüz geçmiş kaydı yok.", color = Color.White.copy(alpha = 0.75f))
-                        }
-                    }
+                    item { GlassCard(modifier = Modifier.fillMaxWidth()) { Text("Henüz geçmiş kaydı yok.", color = Color.White.copy(alpha = 0.75f)) } }
                 } else {
                     items(items = visibleSummaries, key = { "${it.dateKey}|${it.locationName}" }) { day ->
-                        DailySummaryCard(
-                            day = day,
-                            onClick = { selectedDay = day },
-                            onDeleteClick = { dayPendingDelete = day }
-                        )
+                        DailySummaryCard(day = day, onClick = { selectedDay = day }, onDeleteClick = { dayPendingDelete = day })
                     }
                 }
             }
@@ -528,139 +398,78 @@ fun WeatherTrackerApp() {
     }
 
     if (showCosaDialog) {
-        CosaLoginDialog(
-            initialEmail = cosaPrefs.getEmail(),
-            onDismiss = { showCosaDialog = false },
-            onConnected = { email, password, token, endpoint ->
-                cosaPrefs.saveSession(email, password, token, endpoint.id, endpoint.name)
-                reloadLocationsFromPrefs()
-                showCosaDialog = false
-                scope.launch {
-                    isMeasuring = true
-                    WeatherRepository.measureAndSaveAll(context)
-                    WeatherWidgetProvider.updateAllWidgets(context)
-                    isMeasuring = false
-                }
-                Toast.makeText(context, "Cosa bağlandı: ${endpoint.name}", Toast.LENGTH_SHORT).show()
-            }
-        )
+        CosaLoginDialog(initialEmail = cosaPrefs.getEmail(), onDismiss = { showCosaDialog = false }, onConnected = { email, password, token, endpoint ->
+            cosaPrefs.saveSession(email, password, token, endpoint.id, endpoint.name); reloadLocationsFromPrefs(); showCosaDialog = false
+            scope.launch { isMeasuring = true; WeatherRepository.measureAndSaveAll(context); WeatherWidgetProvider.updateAllWidgets(context); isMeasuring = false }
+            Toast.makeText(context, "Cosa bağlandı: ${endpoint.name}", Toast.LENGTH_SHORT).show()
+        })
     }
 
     if (showMetricDialog) {
-        MetricSelectorDialog(
-            currentSelection = selectedMetrics,
-            onDismiss = { showMetricDialog = false },
-            onSave = { updated ->
-                metricPrefs.saveSelectedMetrics(updated)
-                selectedMetrics = updated
-                showMetricDialog = false
-            }
-        )
+        MetricSelectorDialog(currentSelection = selectedMetrics, onDismiss = { showMetricDialog = false }, onSave = { updated ->
+            metricPrefs.saveSelectedMetrics(updated); selectedMetrics = updated; showMetricDialog = false
+        })
     }
 
     if (locationPendingRemove != null) {
         val target = locationPendingRemove!!
         AlertDialog(
-            containerColor = Color(0xF0131C31),
-            titleContentColor = Color.White,
-            textContentColor = Color(0xFFCBD5E1),
-            onDismissRequest = { locationPendingRemove = null },
-            title = { Text("Konumu Kaldır") },
+            containerColor = Color(0xF0131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
+            onDismissRequest = { locationPendingRemove = null }, title = { Text("Konumu Kaldır") },
             text = { Text("${target.name} otomatik ölçümlerden çıkarılsın mı?") },
             confirmButton = {
                 TextButton(onClick = {
-                    locationPendingRemove = null
-                    locPrefs.removeLocation(target.name)
+                    locationPendingRemove = null; locPrefs.removeLocation(target.name)
                     if (selectedFilterLocation == target.name) selectedFilterLocation = null
-                    reloadLocationsFromPrefs()
-                    WeatherWidgetProvider.updateAllWidgets(context)
+                    reloadLocationsFromPrefs(); WeatherWidgetProvider.updateAllWidgets(context)
                 }) { Text("Kaldır", color = Color(0xFFFB7185), fontWeight = FontWeight.Bold) }
             },
-            dismissButton = {
-                TextButton(onClick = { locationPendingRemove = null }) { Text("İptal", color = Color(0xFF94A3B8)) }
-            }
+            dismissButton = { TextButton(onClick = { locationPendingRemove = null }) { Text("İptal", color = Color(0xFF94A3B8)) } }
         )
     }
 
     if (dayPendingDelete != null) {
         val target = dayPendingDelete!!
         AlertDialog(
-            containerColor = Color(0xF0131C31),
-            titleContentColor = Color.White,
-            textContentColor = Color(0xFFCBD5E1),
-            onDismissRequest = { dayPendingDelete = null },
-            title = { Text("Günü Sil") },
+            containerColor = Color(0xF0131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
+            onDismissRequest = { dayPendingDelete = null }, title = { Text("Günü Sil") },
             text = { Text("${formatDateTurkish(target.dateKey)}\n${target.locationName}\n\n${target.measurementCount} ölçüm silinsin mi?") },
             confirmButton = {
                 TextButton(onClick = {
                     dayPendingDelete = null
                     scope.launch {
-                        withContext(Dispatchers.IO) {
-                            val db = WeatherDatabaseHelper(context)
-                            db.deleteDay(target.dateKey, target.locationName)
-                            db.close()
-                            WeatherWidgetProvider.updateAllWidgets(context)
-                        }
-                        WeatherRepository.notifyChanged()
-                        Toast.makeText(context, "Günlük kayıt silindi", Toast.LENGTH_SHORT).show()
+                        withContext(Dispatchers.IO) { val db = WeatherDatabaseHelper(context); db.deleteDay(target.dateKey, target.locationName); db.close(); WeatherWidgetProvider.updateAllWidgets(context) }
+                        WeatherRepository.notifyChanged(); Toast.makeText(context, "Günlük kayıt silindi", Toast.LENGTH_SHORT).show()
                     }
                 }) { Text("Sil", color = Color(0xFFFB7185), fontWeight = FontWeight.Bold) }
             },
-            dismissButton = {
-                TextButton(onClick = { dayPendingDelete = null }) { Text("İptal", color = Color(0xFF94A3B8)) }
-            }
+            dismissButton = { TextButton(onClick = { dayPendingDelete = null }) { Text("İptal", color = Color(0xFF94A3B8)) } }
         )
     }
 
     if (showLocationDialog) {
-        LocationSearchDialog(
-            onDismiss = { showLocationDialog = false },
-            onSelectLocation = { picked ->
-                val saved = SavedLocation(picked.displayName, picked.latitude, picked.longitude)
-                locPrefs.addLocation(saved)
-                reloadLocationsFromPrefs()
-                showLocationDialog = false
-                scope.launch {
-                    isMeasuring = true
-                    WeatherRepository.measureAndSaveAll(context)
-                    WeatherWidgetProvider.updateAllWidgets(context)
-                    isMeasuring = false
-                }
-            }
-        )
+        LocationSearchDialog(onDismiss = { showLocationDialog = false }, onSelectLocation = { picked ->
+            val saved = SavedLocation(picked.displayName, picked.latitude, picked.longitude)
+            locPrefs.addLocation(saved); reloadLocationsFromPrefs(); showLocationDialog = false
+            scope.launch { isMeasuring = true; WeatherRepository.measureAndSaveAll(context); WeatherWidgetProvider.updateAllWidgets(context); isMeasuring = false }
+        })
     }
 
     if (showExportDialog) {
         AlertDialog(
-            containerColor = Color(0xF0131C31),
-            titleContentColor = Color.White,
-            textContentColor = Color(0xFFCBD5E1),
-            onDismissRequest = { if (!isExporting) showExportDialog = false },
-            title = { Text("Excel Dışa Aktar (.xlsx)") },
+            containerColor = Color(0xF0131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
+            onDismissRequest = { if (!isExporting) showExportDialog = false }, title = { Text("Excel Dışa Aktar (.xlsx)") },
             text = {
                 Column {
-                    Text("2 sayfalı Excel oluşturulur:\n• Günlük Özet\n• Saatlik Kayıtlar (${selectedMetrics.size} veri sütunu)", fontSize = 14.sp)
-                    if (isExporting) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
+                    Text("3 sayfalı Excel oluşturulur:\n• Günlük Özet\n• Saatlik Kayıtlar (${selectedMetrics.size} veri)\n• Kombi & Maliyet Analizi", fontSize = 14.sp)
+                    if (isExporting) { Spacer(modifier = Modifier.height(12.dp)); LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
                 }
             },
-            confirmButton = {
-                Button(enabled = !isExporting, onClick = {
-                    showExportDialog = false
-                    createExcelLauncher.launch("hava_durumu_${LocalDate.now()}.xlsx")
-                }) { Text("Telefona Kaydet") }
-            },
+            confirmButton = { Button(enabled = !isExporting, onClick = { showExportDialog = false; createExcelLauncher.launch("hava_durumu_${LocalDate.now()}.xlsx") }) { Text("Telefona Kaydet") } },
             dismissButton = {
                 Row {
-                    TextButton(enabled = !isExporting, onClick = {
-                        showExportDialog = false
-                        shareExcel()
-                    }) { Text("Paylaş", color = Color(0xFF38BDF8)) }
-                    TextButton(enabled = !isExporting, onClick = { showExportDialog = false }) {
-                        Text("İptal", color = Color(0xFF94A3B8))
-                    }
+                    TextButton(enabled = !isExporting, onClick = { showExportDialog = false; shareExcel() }) { Text("Paylaş", color = Color(0xFF38BDF8)) }
+                    TextButton(enabled = !isExporting, onClick = { showExportDialog = false }) { Text("İptal", color = Color(0xFF94A3B8)) }
                 }
             }
         )
@@ -668,8 +477,8 @@ fun WeatherTrackerApp() {
 }
 
 @Composable
-fun CosaLiveCard(deviceName: String, latest: WeatherMeasurement?, onDisconnect: () -> Unit) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), warmHighlight = true) {
+fun CosaLiveCard(deviceName: String, latest: WeatherMeasurement?, report: CosaDailyReport?, m3PerHour: Double, pricePerM3: Double, onOpenAnalysis: () -> Unit, onDisconnect: () -> Unit) {
+    GlassCard(modifier = Modifier.fillMaxWidth(), warmHighlight = true, onClick = onOpenAnalysis) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("🏠 Cosa v5 • $deviceName", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
             GlassChipButton(text = "Çıkış", onClick = onDisconnect, accent = Color(0xFFFDA4AF))
@@ -680,19 +489,22 @@ fun CosaLiveCard(deviceName: String, latest: WeatherMeasurement?, onDisconnect: 
             val combi = extra.optString("cosa_combi", "Beklemede")
             val target = extra.optDouble("cosa_target", 0.0)
             val mode = extra.optString("cosa_mode", "-")
-            val battery = extra.optInt("cosa_battery", 0)
-            val rssi = extra.optInt("cosa_rssi", 0)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(String.format(Locale.US, "%.1f °C", latest.temperature), fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFFDBA74))
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text("Kombi: $combi  •  Hedef: ${String.format(Locale.US, "%.1f°", target)}", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text("Nem: %${latest.humidity}  •  Mod: $mode", fontSize = 12.sp, color = Color.White.copy(alpha = 0.80f))
-                    Text("Pil: %$battery  •  Sinyal: $rssi dBm  •  Son: ${latest.timeLabel}", fontSize = 11.sp, color = Color.White.copy(alpha = 0.65f))
+                    Text("Nem: %${latest.humidity}  •  Mod: $mode  •  Son: ${latest.timeLabel}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.78f))
                 }
             }
         } else {
-            Text("Cosa verisi henüz çekilmedi. Aşağıdan ölçün.", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+            Text("Cosa verisi henüz çekilmedi.", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+        }
+        if (report != null) {
+            val m3 = (report.totalSec / 3600.0) * m3PerHour
+            val tl = m3 * pricePerM3
+            Spacer(modifier = Modifier.height(8.dp)); HorizontalDivider(color = Color.White.copy(alpha = 0.14f)); Spacer(modifier = Modifier.height(6.dp))
+            Text(String.format(Locale.US, "📈 Son 24s: %s çalıştı • ~%.1f m³ • ~%.1f TL (Detay için dokun)", formatDuration(report.totalSec), m3, tl), fontSize = 11.sp, color = Color(0xFFFDE68A), fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -702,11 +514,8 @@ fun MetricDetailsGrid(measurement: WeatherMeasurement, selectedMetrics: Set<Weat
     val extra = remember(measurement.extraJson) { measurement.extraObj() }
     val isCosaRow = measurement.weatherCode < 0
     val list = remember(selectedMetrics, excludeTopBasic, isCosaRow) {
-        if (isCosaRow) {
-            listOf(WeatherMetric.COSA_TARGET_TEMP, WeatherMetric.COSA_ROOM_HUMIDITY, WeatherMetric.COSA_COMBI_STATE, WeatherMetric.COSA_MODE, WeatherMetric.COSA_BATTERY)
-        } else {
-            WeatherMetric.entries.filter { m -> m in selectedMetrics && (!excludeTopBasic || (m != WeatherMetric.TEMPERATURE && m != WeatherMetric.WEATHER_DESC)) }
-        }
+        if (isCosaRow) listOf(WeatherMetric.COSA_TARGET_TEMP, WeatherMetric.COSA_ROOM_HUMIDITY, WeatherMetric.COSA_COMBI_STATE, WeatherMetric.COSA_MODE, WeatherMetric.COSA_BATTERY)
+        else WeatherMetric.entries.filter { m -> m in selectedMetrics && (!excludeTopBasic || (m != WeatherMetric.TEMPERATURE && m != WeatherMetric.WEATHER_DESC)) }
     }
     if (list.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -745,9 +554,7 @@ fun TrackedLocationCard(location: SavedLocation, latest: WeatherMeasurement?, se
                     Text("Son ölçüm: ${latest.dateKey} ${latest.timeLabel}", fontSize = 11.sp, color = Color.White.copy(alpha = 0.65f))
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            HorizontalDivider(color = Color.White.copy(alpha = 0.14f))
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp)); HorizontalDivider(color = Color.White.copy(alpha = 0.14f)); Spacer(modifier = Modifier.height(8.dp))
             MetricDetailsGrid(measurement = latest, selectedMetrics = selectedMetrics, excludeTopBasic = true)
         } else {
             Text("Bu konum için henüz ölçüm alınmadı.", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
@@ -768,9 +575,7 @@ fun DailySummaryCard(day: DailySummary, onClick: () -> Unit, onDeleteClick: () -
         }
         Spacer(modifier = Modifier.height(10.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TempBadge("Min", day.minTemp, Color(0xFF38BDF8))
-            TempBadge("Ort", day.avgTemp, Color(0xFF2DD4BF))
-            TempBadge("Max", day.maxTemp, Color(0xFFFB923C))
+            TempBadge("Min", day.minTemp, Color(0xFF38BDF8)); TempBadge("Ort", day.avgTemp, Color(0xFF2DD4BF)); TempBadge("Max", day.maxTemp, Color(0xFFFB923C))
         }
         if (!isCosa) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -797,9 +602,7 @@ fun DayDetailScreen(summary: DailySummary, selectedMetrics: Set<WeatherMetric>, 
 
     LaunchedEffect(summary) {
         withContext(Dispatchers.IO) {
-            val db = WeatherDatabaseHelper(context)
-            hourlyList = db.getHourlyForDay(summary.dateKey, summary.locationName)
-            db.close()
+            val db = WeatherDatabaseHelper(context); hourlyList = db.getHourlyForDay(summary.dateKey, summary.locationName); db.close()
         }
     }
 
@@ -814,25 +617,16 @@ fun DayDetailScreen(summary: DailySummary, selectedMetrics: Set<WeatherMetric>, 
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, titleContentColor = Color.White),
-                title = {
-                    Column {
-                        Text(formatDateTurkish(summary.dateKey), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text(summary.locationName, fontSize = 12.sp, color = Color.White.copy(alpha = 0.72f))
-                    }
-                },
+                title = { Column { Text(formatDateTurkish(summary.dateKey), fontSize = 16.sp, fontWeight = FontWeight.Bold); Text(summary.locationName, fontSize = 12.sp, color = Color.White.copy(alpha = 0.72f)) } },
                 navigationIcon = { GlassChipButton(text = "← Geri", onClick = onBack, modifier = Modifier.padding(start = 8.dp, end = 6.dp)) },
-                actions = {
-                    if (!isCosa) GlassChipButton(text = "⚙️ Veriler", onClick = onOpenMetricMenu, modifier = Modifier.padding(end = 10.dp))
-                }
+                actions = { if (!isCosa) GlassChipButton(text = "⚙️ Veriler", onClick = onOpenMetricMenu, modifier = Modifier.padding(end = 10.dp)) }
             )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
             GlassCard(modifier = Modifier.fillMaxWidth(), highlight = !isCosa, warmHighlight = isCosa) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                    TempBadge("Min", liveMin, Color(0xFF38BDF8))
-                    TempBadge("Ortalama", liveAvg, Color(0xFF2DD4BF))
-                    TempBadge("Max", liveMax, Color(0xFFFB923C))
+                    TempBadge("Min", liveMin, Color(0xFF38BDF8)); TempBadge("Ortalama", liveAvg, Color(0xFF2DD4BF)); TempBadge("Max", liveMax, Color(0xFFFB923C))
                 }
                 if (!isCosa) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -852,9 +646,7 @@ fun DayDetailScreen(summary: DailySummary, selectedMetrics: Set<WeatherMetric>, 
                             Spacer(modifier = Modifier.width(8.dp))
                             GlassChipButton(text = "🗑️", onClick = { itemPendingDelete = item }, accent = Color(0xFFFDA4AF))
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.14f))
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(8.dp)); HorizontalDivider(color = Color.White.copy(alpha = 0.14f)); Spacer(modifier = Modifier.height(8.dp))
                         MetricDetailsGrid(measurement = item, selectedMetrics = selectedMetrics, excludeTopBasic = true)
                     }
                 }
@@ -866,23 +658,18 @@ fun DayDetailScreen(summary: DailySummary, selectedMetrics: Set<WeatherMetric>, 
         val target = itemPendingDelete!!
         AlertDialog(
             containerColor = Color(0xF0131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
-            onDismissRequest = { itemPendingDelete = null },
-            title = { Text("Ölçümü Sil") },
+            onDismissRequest = { itemPendingDelete = null }, title = { Text("Ölçümü Sil") },
             text = { Text("${target.timeLabel} saatindeki (${target.temperature} °C) ölçüm silinsin mi?") },
             confirmButton = {
                 TextButton(onClick = {
                     itemPendingDelete = null
                     scope.launch {
                         val remaining = withContext(Dispatchers.IO) {
-                            val db = WeatherDatabaseHelper(context)
-                            db.deleteMeasurementById(target.id)
-                            val updated = db.getHourlyForDay(summary.dateKey, summary.locationName)
-                            db.close()
-                            WeatherWidgetProvider.updateAllWidgets(context)
-                            updated
+                            val db = WeatherDatabaseHelper(context); db.deleteMeasurementById(target.id)
+                            val updated = db.getHourlyForDay(summary.dateKey, summary.locationName); db.close()
+                            WeatherWidgetProvider.updateAllWidgets(context); updated
                         }
-                        WeatherRepository.notifyChanged()
-                        hourlyList = remaining
+                        WeatherRepository.notifyChanged(); hourlyList = remaining
                         Toast.makeText(context, "Ölçüm silindi", Toast.LENGTH_SHORT).show()
                         if (remaining.isEmpty()) onBack()
                     }
@@ -905,23 +692,20 @@ fun CosaLoginDialog(initialEmail: String, onDismiss: () -> Unit, onConnected: (S
 
     AlertDialog(
         containerColor = Color(0xF5131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
-        onDismissRequest = { if (!loading) onDismiss() },
-        title = { Text("🏠 Cosa v5 Bağla") },
+        onDismissRequest = { if (!loading) onDismiss() }, title = { Text("🏠 Cosa v5 Bağla") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Bilgiler yalnızca telefonunuzda saklanır ve sadece resmi kiwi-api.nuvia.com.tr sunucusuna bağlanır.", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                Text("Bilgiler Keystore ile şifrelenip yalnızca telefonunuzda saklanır ve sadece kiwi-api.nuvia.com.tr sunucusuna bağlanır.", fontSize = 11.sp, color = Color(0xFF94A3B8))
                 Spacer(modifier = Modifier.height(10.dp))
                 if (endpoints.isEmpty()) {
                     OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Cosa E-posta") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Şifre") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                 } else {
-                    Text("Cihazı seçin:", color = Color.White, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Cihazı seçin:", color = Color.White, fontWeight = FontWeight.Medium); Spacer(modifier = Modifier.height(8.dp))
                     endpoints.forEach { ep ->
                         GlassCard(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), cornerRadius = 14.dp, onClick = { onConnected(email, password, fetchedToken!!, ep) }) {
-                            Text(ep.name, color = Color.White, fontWeight = FontWeight.Bold)
-                            Text("ID: ${ep.id}", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                            Text(ep.name, color = Color.White, fontWeight = FontWeight.Bold); Text("ID: ${ep.id}", fontSize = 11.sp, color = Color(0xFF94A3B8))
                         }
                     }
                 }
@@ -934,9 +718,7 @@ fun CosaLoginDialog(initialEmail: String, onDismiss: () -> Unit, onConnected: (S
                 Button(enabled = !loading && email.isNotBlank() && password.isNotBlank(), onClick = {
                     scope.launch {
                         loading = true; errorMsg = null
-                        val res = withContext(Dispatchers.IO) {
-                            runCatching { val token = CosaApiClient.login(email, password); token to CosaApiClient.getEndpoints(token) }
-                        }
+                        val res = withContext(Dispatchers.IO) { runCatching { val token = CosaApiClient.login(email, password); token to CosaApiClient.getEndpoints(token) } }
                         loading = false
                         res.onSuccess { (token, list) ->
                             if (list.isEmpty()) errorMsg = "Hesapta Cosa cihazı bulunamadı."
@@ -955,14 +737,8 @@ fun CosaLoginDialog(initialEmail: String, onDismiss: () -> Unit, onConnected: (S
 fun MetricSelectorDialog(currentSelection: Set<WeatherMetric>, onDismiss: () -> Unit, onSave: (Set<WeatherMetric>) -> Unit) {
     var draft by remember { mutableStateOf(currentSelection) }
     AlertDialog(
-        containerColor = Color(0xF5131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text("Gösterilecek & Excel Verileri", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Seçili: ${draft.size} / ${WeatherMetric.entries.size}", fontSize = 11.sp, color = Color(0xFF94A3B8))
-            }
-        },
+        containerColor = Color(0xF5131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1), onDismissRequest = onDismiss,
+        title = { Column { Text("Gösterilecek & Excel Verileri", fontSize = 18.sp, fontWeight = FontWeight.Bold); Text("Seçili: ${draft.size} / ${WeatherMetric.entries.size}", fontSize = 11.sp, color = Color(0xFF94A3B8)) } },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -973,9 +749,7 @@ fun MetricSelectorDialog(currentSelection: Set<WeatherMetric>, onDismiss: () -> 
                 Spacer(modifier = Modifier.height(10.dp))
                 LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
                     MetricCategory.entries.forEach { category ->
-                        item(key = "cat_${category.name}") {
-                            Text(category.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8), modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
-                        }
+                        item(key = "cat_${category.name}") { Text(category.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8), modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)) }
                         items(WeatherMetric.entries.filter { it.category == category }, key = { it.name }) { metric ->
                             val checked = metric in draft
                             Row(modifier = Modifier.fillMaxWidth().clickable { draft = if (checked) draft - metric else draft + metric }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1000,8 +774,7 @@ fun LocationSearchDialog(onDismiss: () -> Unit, onSelectLocation: (GeocodingResu
     var searching by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
     AlertDialog(
-        containerColor = Color(0xF0131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1),
-        onDismissRequest = onDismiss, title = { Text("Konum Ekle") },
+        containerColor = Color(0xF0131C31), titleContentColor = Color.White, textContentColor = Color(0xFFCBD5E1), onDismissRequest = onDismiss, title = { Text("Konum Ekle") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1011,10 +784,8 @@ fun LocationSearchDialog(onDismiss: () -> Unit, onSelectLocation: (GeocodingResu
                         if (query.isBlank()) return@Button
                         scope.launch {
                             searching = true; errorMsg = null
-                            try {
-                                results = withContext(Dispatchers.IO) { OpenMeteoClient.searchLocations(query) }
-                                if (results.isEmpty()) errorMsg = "Sonuç bulunamadı."
-                            } catch (e: Exception) { errorMsg = e.localizedMessage }
+                            try { results = withContext(Dispatchers.IO) { OpenMeteoClient.searchLocations(query) }; if (results.isEmpty()) errorMsg = "Sonuç bulunamadı." }
+                            catch (e: Exception) { errorMsg = e.localizedMessage }
                             searching = false
                         }
                     }, enabled = !searching) { Text("Ara") }
@@ -1039,7 +810,6 @@ fun LocationSearchDialog(onDismiss: () -> Unit, onSelectLocation: (GeocodingResu
 
 private fun formatDateTurkish(dateKey: String): String {
     return try {
-        val date = LocalDate.parse(dateKey)
-        date.format(DateTimeFormatter.ofPattern("d MMMM yyyy, EEEE", Locale.forLanguageTag("tr-TR")))
+        LocalDate.parse(dateKey).format(DateTimeFormatter.ofPattern("d MMMM yyyy, EEEE", Locale.forLanguageTag("tr-TR")))
     } catch (_: Exception) { dateKey }
 }
