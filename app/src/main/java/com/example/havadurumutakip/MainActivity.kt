@@ -1,9 +1,13 @@
 package com.example.havadurumutakip
 
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,9 +21,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.example.havadurumutakip.data.LocationPreferences
 import com.example.havadurumutakip.data.WeatherDatabaseHelper
 import com.example.havadurumutakip.data.WeatherRepository
+import com.example.havadurumutakip.export.ExcelExporter
 import com.example.havadurumutakip.model.DailySummary
 import com.example.havadurumutakip.model.GeocodingResult
 import com.example.havadurumutakip.model.SavedLocation
@@ -30,6 +36,7 @@ import com.example.havadurumutakip.worker.WeatherSyncWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -63,8 +70,75 @@ fun WeatherTrackerApp() {
     var latestMeasurement by remember { mutableStateOf<WeatherMeasurement?>(null) }
     var selectedDay by remember { mutableStateOf<DailySummary?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var isMeasuring by remember { mutableStateOf(false) }
+    var isExporting by remember { mutableStateOf(false) }
     var statusError by remember { mutableStateOf<String?>(null) }
+
+    val createExcelLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                isExporting = true
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val db = WeatherDatabaseHelper(context)
+                        val summaries = db.getDailySummaries()
+                        val measurements = db.getAllMeasurements()
+                        db.close()
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            ExcelExporter.writeXlsx(out, summaries, measurements)
+                        } ?: error("Dosya açılamadı")
+                    }
+                }
+                isExporting = false
+                result.onSuccess {
+                    Toast.makeText(context, "Excel dosyası kaydedildi!", Toast.LENGTH_LONG).show()
+                }.onFailure {
+                    Toast.makeText(context, "Hata: ${it.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun shareExcel() {
+        scope.launch {
+            isExporting = true
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val db = WeatherDatabaseHelper(context)
+                    val summaries = db.getDailySummaries()
+                    val measurements = db.getAllMeasurements()
+                    db.close()
+
+                    val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+                    val file = File(exportDir, "hava_durumu_${LocalDate.now()}.xlsx")
+                    file.outputStream().use { out ->
+                        ExcelExporter.writeXlsx(out, summaries, measurements)
+                    }
+                    FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                }
+            }
+            isExporting = false
+            result.onSuccess { fileUri ->
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    putExtra(Intent.EXTRA_STREAM, fileUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Excel Paylaş / Aç"))
+            }.onFailure {
+                Toast.makeText(context, "Hata: ${it.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     LaunchedEffect(refreshTick, currentLocation) {
         withContext(Dispatchers.IO) {
@@ -99,10 +173,13 @@ fun WeatherTrackerApp() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Hava Durumu Takip") },
+                    title = { Text("Hava Durumu", maxLines = 1) },
                     actions = {
+                        TextButton(onClick = { showExportDialog = true }) {
+                            Text("📊 Excel")
+                        }
                         TextButton(onClick = { showLocationDialog = true }) {
-                            Text("📍 Konum Seç")
+                            Text("📍 Konum")
                         }
                     }
                 )
@@ -226,6 +303,55 @@ fun WeatherTrackerApp() {
                     WeatherRepository.measureAndSaveNow(context)
                     WeatherWidgetProvider.updateAllWidgets(context)
                     isMeasuring = false
+                }
+            }
+        )
+    }
+
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isExporting) showExportDialog = false },
+            title = { Text("Excel Dışa Aktar (.xlsx)") },
+            text = {
+                Column {
+                    Text(
+                        "Tüm geçmişiniz 2 sayfalı gerçek Excel dosyasına aktarılır:\n• Günlük Özet (Min / Ort / Max)\n• Tüm Saatlik Kayıtlar",
+                        fontSize = 14.sp
+                    )
+                    if (isExporting) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !isExporting,
+                    onClick = {
+                        showExportDialog = false
+                        createExcelLauncher.launch("hava_durumu_${LocalDate.now()}.xlsx")
+                    }
+                ) {
+                    Text("Telefona Kaydet")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        enabled = !isExporting,
+                        onClick = {
+                            showExportDialog = false
+                            shareExcel()
+                        }
+                    ) {
+                        Text("Paylaş")
+                    }
+                    TextButton(
+                        enabled = !isExporting,
+                        onClick = { showExportDialog = false }
+                    ) {
+                        Text("İptal")
+                    }
                 }
             }
         )

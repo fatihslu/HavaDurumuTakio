@@ -116,6 +116,37 @@ class WeatherDatabaseHelper(context: Context) :
         return list
     }
 
+    fun getAllMeasurements(): List<WeatherMeasurement> {
+        val list = mutableListOf<WeatherMeasurement>()
+        val sql = """
+            SELECT id, date_key, time_label, timestamp, location_name,
+                   latitude, longitude, temperature, humidity, wind_speed, weather_code
+            FROM measurements
+            ORDER BY timestamp DESC
+        """.trimIndent()
+
+        readableDatabase.rawQuery(sql, null).use { cursor ->
+            while (cursor.moveToNext()) {
+                list.add(
+                    WeatherMeasurement(
+                        id = cursor.getLong(0),
+                        dateKey = cursor.getString(1),
+                        timeLabel = cursor.getString(2),
+                        timestamp = cursor.getLong(3),
+                        locationName = cursor.getString(4),
+                        latitude = cursor.getDouble(5),
+                        longitude = cursor.getDouble(6),
+                        temperature = cursor.getDouble(7),
+                        humidity = cursor.getInt(8),
+                        windSpeed = cursor.getDouble(9),
+                        weatherCode = cursor.getInt(10)
+                    )
+                )
+            }
+        }
+        return list
+    }
+
     fun getLatestMeasurementForLocation(locationName: String): WeatherMeasurement? {
         val sql = """
             SELECT id, date_key, time_label, timestamp, location_name,
