@@ -7,6 +7,7 @@ import java.util.Locale
 
 enum class MetricCategory(val title: String) {
     BASIC("Temel & Sıcaklık"),
+    COSA("Cosa v5 (Oda & Kombi)"),
     SUN_PRECIP("Yağış, Bulut & Güneş"),
     WIND_ATMOS("Rüzgâr, Basınç & Atmosfer"),
     SOIL_AGRI("Toprak & Tarım"),
@@ -24,6 +25,13 @@ enum class WeatherMetric(
     APPARENT_TEMP("Hissedilen Sıcaklık (°C)", "Hissedilen (C)", MetricCategory.BASIC, true, true),
     DEW_POINT("Çiy Noktası (°C)", "Ciy Noktasi (C)", MetricCategory.BASIC, true, true),
     HUMIDITY("Bağıl Nem (%)", "Nem (%)", MetricCategory.BASIC, true, true),
+
+    COSA_ROOM_TEMP("Cosa Oda Sıcaklığı (°C)", "Cosa Oda (C)", MetricCategory.COSA, true, true),
+    COSA_ROOM_HUMIDITY("Cosa Oda Nemi (%)", "Cosa Nem (%)", MetricCategory.COSA, true, true),
+    COSA_TARGET_TEMP("Cosa Hedef Sıcaklık (°C)", "Cosa Hedef (C)", MetricCategory.COSA, true, true),
+    COSA_COMBI_STATE("Cosa Kombi Durumu", "Kombi Durumu", MetricCategory.COSA, true, false),
+    COSA_MODE("Cosa Mod / Profil", "Cosa Mod", MetricCategory.COSA, true, false),
+    COSA_BATTERY("Cosa Pil (%)", "Cosa Pil (%)", MetricCategory.COSA, false, true),
 
     WEATHER_DESC("Hava Durumu", "Hava Durumu", MetricCategory.SUN_PRECIP, true, false),
     SUN_CONDITION("Güneş / Gökyüzü Durumu", "Gunes Durumu", MetricCategory.SUN_PRECIP, true, false),
@@ -68,32 +76,38 @@ enum class WeatherMetric(
     fun formatDisplay(m: WeatherMeasurement, extra: JSONObject = m.extraObj()): String {
         return when (this) {
             TEMPERATURE -> String.format(Locale.US, "%.1f °C", m.temperature)
-            APPARENT_TEMP -> String.format(Locale.US, "%.1f °C", m.apparentTemp)
+            APPARENT_TEMP -> if (m.weatherCode < 0) "-" else String.format(Locale.US, "%.1f °C", m.apparentTemp)
             DEW_POINT -> fmtNum(extra, "dew_point", "%.1f °C")
             HUMIDITY -> "%${m.humidity}"
+            COSA_ROOM_TEMP -> fmtNum(extra, "cosa_temp", "%.1f °C")
+            COSA_ROOM_HUMIDITY -> fmtInt(extra, "cosa_humidity", "%%%d")
+            COSA_TARGET_TEMP -> fmtNum(extra, "cosa_target", "%.1f °C")
+            COSA_COMBI_STATE -> extra.optString("cosa_combi", "-").ifBlank { "-" }
+            COSA_MODE -> extra.optString("cosa_mode", "-").ifBlank { "-" }
+            COSA_BATTERY -> fmtInt(extra, "cosa_battery", "%%%d")
             WEATHER_DESC -> {
                 val (e, d) = OpenMeteoClient.weatherDescription(m.weatherCode)
                 "$e $d"
             }
-            SUN_CONDITION -> OpenMeteoClient.sunCondition(m.isDay, m.cloudCover, m.precipitation)
-            CLOUD_COVER -> "%${m.cloudCover}"
-            PRECIPITATION -> String.format(Locale.US, "%.1f mm", m.precipitation)
+            SUN_CONDITION -> if (m.weatherCode < 0) "-" else OpenMeteoClient.sunCondition(m.isDay, m.cloudCover, m.precipitation)
+            CLOUD_COVER -> if (m.weatherCode < 0) "-" else "%${m.cloudCover}"
+            PRECIPITATION -> if (m.weatherCode < 0) "-" else String.format(Locale.US, "%.1f mm", m.precipitation)
             RAIN -> fmtNum(extra, "rain", "%.1f mm")
             SHOWERS -> fmtNum(extra, "showers", "%.1f mm")
             SNOWFALL -> fmtNum(extra, "snowfall", "%.1f cm")
             PRECIP_PROB -> fmtInt(extra, "precip_prob", "%%%d")
-            UV_INDEX -> String.format(Locale.US, "%.1f", m.uvIndex)
+            UV_INDEX -> if (m.weatherCode < 0) "-" else String.format(Locale.US, "%.1f", m.uvIndex)
             SHORTWAVE_RAD -> fmtNum(extra, "shortwave_rad", "%.0f W/m²")
             DIRECT_RAD -> fmtNum(extra, "direct_rad", "%.0f W/m²")
             DIFFUSE_RAD -> fmtNum(extra, "diffuse_rad", "%.0f W/m²")
             SUNRISE_SUNSET -> {
-                val sr = extra.optString("sunrise", "--:--")
-                val ss = extra.optString("sunset", "--:--")
-                "$sr / $ss"
+                val sr = extra.optString("sunrise", "")
+                val ss = extra.optString("sunset", "")
+                if (sr.isBlank() && ss.isBlank()) "-" else "$sr / $ss"
             }
             SUNSHINE_DUR -> fmtNum(extra, "sunshine_hrs", "%.1f sa")
             DAYLIGHT_DUR -> fmtNum(extra, "daylight_hrs", "%.1f sa")
-            WIND_SPEED -> String.format(Locale.US, "%.1f km/sa", m.windSpeed)
+            WIND_SPEED -> if (m.weatherCode < 0) "-" else String.format(Locale.US, "%.1f km/sa", m.windSpeed)
             WIND_DIR -> {
                 if (extra.has("wind_dir") && !extra.isNull("wind_dir")) {
                     windDirectionLabel(extra.optInt("wind_dir", 0))
@@ -123,8 +137,10 @@ enum class WeatherMetric(
             CO -> fmtNum(extra, "co", "%.0f µg/m³")
             DUST -> fmtNum(extra, "dust", "%.1f µg/m³")
             POLLEN -> {
-                val p = extra.optString("pollen_text", "")
-                if (p.isBlank()) "0 (Yok)" else p
+                if (m.weatherCode < 0) "-" else {
+                    val p = extra.optString("pollen_text", "")
+                    if (p.isBlank()) "0 (Yok)" else p
+                }
             }
         }
     }
@@ -133,22 +149,26 @@ enum class WeatherMetric(
         if (!isNumeric) return null
         return when (this) {
             TEMPERATURE -> m.temperature
-            APPARENT_TEMP -> m.apparentTemp
+            APPARENT_TEMP -> if (m.weatherCode < 0) null else m.apparentTemp
             DEW_POINT -> optValidDouble(extra, "dew_point")
             HUMIDITY -> m.humidity.toDouble()
-            CLOUD_COVER -> m.cloudCover.toDouble()
-            PRECIPITATION -> m.precipitation
+            COSA_ROOM_TEMP -> optValidDouble(extra, "cosa_temp")
+            COSA_ROOM_HUMIDITY -> optValidDouble(extra, "cosa_humidity")
+            COSA_TARGET_TEMP -> optValidDouble(extra, "cosa_target")
+            COSA_BATTERY -> optValidDouble(extra, "cosa_battery")
+            CLOUD_COVER -> if (m.weatherCode < 0) null else m.cloudCover.toDouble()
+            PRECIPITATION -> if (m.weatherCode < 0) null else m.precipitation
             RAIN -> optValidDouble(extra, "rain")
             SHOWERS -> optValidDouble(extra, "showers")
             SNOWFALL -> optValidDouble(extra, "snowfall")
             PRECIP_PROB -> optValidDouble(extra, "precip_prob")
-            UV_INDEX -> m.uvIndex
+            UV_INDEX -> if (m.weatherCode < 0) null else m.uvIndex
             SHORTWAVE_RAD -> optValidDouble(extra, "shortwave_rad")
             DIRECT_RAD -> optValidDouble(extra, "direct_rad")
             DIFFUSE_RAD -> optValidDouble(extra, "diffuse_rad")
             SUNSHINE_DUR -> optValidDouble(extra, "sunshine_hrs")
             DAYLIGHT_DUR -> optValidDouble(extra, "daylight_hrs")
-            WIND_SPEED -> m.windSpeed
+            WIND_SPEED -> if (m.weatherCode < 0) null else m.windSpeed
             WIND_GUSTS -> optValidDouble(extra, "wind_gusts")
             PRESSURE_MSL -> optValidDouble(extra, "pressure_msl")
             SURFACE_PRESSURE -> optValidDouble(extra, "surface_pressure")

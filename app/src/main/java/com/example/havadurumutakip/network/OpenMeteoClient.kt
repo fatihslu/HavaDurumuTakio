@@ -76,7 +76,6 @@ object OpenMeteoClient {
             extra.put("wind_dir", current.optInt("wind_direction_10m", 0))
         }
 
-        // Saatlik verilerden mevcut saati eslestir
         var uvIndex = 0.0
         val hourly = root.optJSONObject("hourly")
         if (hourly != null) {
@@ -106,7 +105,6 @@ object OpenMeteoClient {
             safeArrDouble(hourly.optJSONArray("soil_moisture_0_to_1cm"), idx)?.let { extra.put("soil_moisture", it) }
         }
 
-        // Gunluk astronomi verileri
         val daily = root.optJSONObject("daily")
         if (daily != null) {
             val sr = daily.optJSONArray("sunrise")?.optString(0, "") ?: ""
@@ -121,7 +119,6 @@ object OpenMeteoClient {
             }
         }
 
-        // Hava Kalitesi & Polen API (hata verse bile ana hava durumu etkilenmez)
         runCatching {
             val aqUrl = "https://air-quality-api.open-meteo.com/v1/air-quality" +
                 "?latitude=$latitude&longitude=$longitude" +
@@ -203,6 +200,8 @@ object OpenMeteoClient {
     }
 
     fun weatherDescription(code: Int): Pair<String, String> = when (code) {
+        -2 -> "🔥" to "Cosa (Kombi Yanıyor)"
+        -1 -> "🏠" to "Cosa (Kombi Beklemede)"
         0 -> "☀️" to "Açık"
         1, 2 -> "🌤️" to "Az Bulutlu"
         3 -> "☁️" to "Çok Bulutlu"
