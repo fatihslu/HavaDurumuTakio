@@ -28,6 +28,9 @@ object ExcelExporter {
                 CellValue.Text("Min Sicaklik (C)"),
                 CellValue.Text("Ortalama Sicaklik (C)"),
                 CellValue.Text("Max Sicaklik (C)"),
+                CellValue.Text("Toplam Yagis (mm)"),
+                CellValue.Text("Ort Bulutluluk (%)"),
+                CellValue.Text("Max UV"),
                 CellValue.Text("Olcum Sayisi")
             )
         )
@@ -39,6 +42,9 @@ object ExcelExporter {
                     CellValue.Number(round1(s.minTemp)),
                     CellValue.Number(round1(s.avgTemp)),
                     CellValue.Number(round1(s.maxTemp)),
+                    CellValue.Number(round1(s.totalPrecipitation)),
+                    CellValue.Number(s.avgCloudCover.toDouble()),
+                    CellValue.Number(round1(s.maxUvIndex)),
                     CellValue.Number(s.measurementCount.toDouble())
                 )
             )
@@ -51,20 +57,31 @@ object ExcelExporter {
                 CellValue.Text("Saat"),
                 CellValue.Text("Konum"),
                 CellValue.Text("Sicaklik (C)"),
+                CellValue.Text("Hissedilen (C)"),
                 CellValue.Text("Nem (%)"),
+                CellValue.Text("Yagis (mm)"),
+                CellValue.Text("Bulutluluk (%)"),
+                CellValue.Text("Gunes Durumu"),
+                CellValue.Text("UV Indeksi"),
                 CellValue.Text("Ruzgar (km/sa)"),
                 CellValue.Text("Hava Durumu")
             )
         )
         for (m in measurements) {
             val (_, desc) = OpenMeteoClient.weatherDescription(m.weatherCode)
+            val sun = OpenMeteoClient.sunCondition(m.isDay, m.cloudCover, m.precipitation)
             sheet2Rows.add(
                 listOf(
                     CellValue.Text(m.dateKey),
                     CellValue.Text(m.timeLabel),
                     CellValue.Text(m.locationName),
                     CellValue.Number(round1(m.temperature)),
+                    CellValue.Number(round1(m.apparentTemp)),
                     CellValue.Number(m.humidity.toDouble()),
+                    CellValue.Number(round1(m.precipitation)),
+                    CellValue.Number(m.cloudCover.toDouble()),
+                    CellValue.Text(sun),
+                    CellValue.Number(round1(m.uvIndex)),
                     CellValue.Number(round1(m.windSpeed)),
                     CellValue.Text(desc)
                 )
@@ -79,12 +96,12 @@ object ExcelExporter {
             writeEntry(
                 zos,
                 "xl/worksheets/sheet1.xml",
-                worksheetXml(sheet1Rows, listOf(14, 34, 18, 22, 18, 14))
+                worksheetXml(sheet1Rows, listOf(14, 34, 18, 22, 18, 20, 18, 12, 14))
             )
             writeEntry(
                 zos,
                 "xl/worksheets/sheet2.xml",
-                worksheetXml(sheet2Rows, listOf(14, 10, 34, 15, 12, 16, 18))
+                worksheetXml(sheet2Rows, listOf(14, 10, 34, 14, 15, 12, 14, 16, 18, 12, 16, 18))
             )
         }
     }

@@ -53,41 +53,50 @@ class WeatherWidgetProvider : AppWidgetProvider() {
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int
         ) {
-            val location = LocationPreferences(context).getLocation()
-            val db = WeatherDatabaseHelper(context)
-            val latest = db.getLatestMeasurementForLocation(location.name)
-            val todayKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-            val todaySummary = db.getDaySummary(todayKey, location.name)
-            db.close()
-
+            val location = LocationPreferences(context).getPrimaryLocation()
             val views = RemoteViews(context.packageName, R.layout.widget_weather)
-            views.setTextViewText(R.id.widget_location, location.name)
 
-            if (latest != null) {
-                val (emoji, desc) = OpenMeteoClient.weatherDescription(latest.weatherCode)
-                views.setTextViewText(
-                    R.id.widget_temp,
-                    String.format(Locale.US, "%.1f°C", latest.temperature)
-                )
-                views.setTextViewText(R.id.widget_condition, "$emoji $desc")
-                views.setTextViewText(R.id.widget_time, "Son ölçüm: ${latest.timeLabel}")
+            if (location != null) {
+                val db = WeatherDatabaseHelper(context)
+                val latest = db.getLatestMeasurementForLocation(location.name)
+                val todayKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val todaySummary = db.getDaySummary(todayKey, location.name)
+                db.close()
+
+                views.setTextViewText(R.id.widget_location, location.name)
+
+                if (latest != null) {
+                    val (emoji, desc) = OpenMeteoClient.weatherDescription(latest.weatherCode)
+                    views.setTextViewText(
+                        R.id.widget_temp,
+                        String.format(Locale.US, "%.1f°C", latest.temperature)
+                    )
+                    views.setTextViewText(R.id.widget_condition, "$emoji $desc")
+                    views.setTextViewText(R.id.widget_time, "Son ölçüm: ${latest.timeLabel}")
+                } else {
+                    views.setTextViewText(R.id.widget_temp, "--°C")
+                    views.setTextViewText(R.id.widget_condition, "Henüz ölçüm yok")
+                    views.setTextViewText(R.id.widget_time, "Yenile'ye basın")
+                }
+
+                if (todaySummary != null) {
+                    val stats = String.format(
+                        Locale.US,
+                        "Min: %.1f° | Ort: %.1f° | Max: %.1f°",
+                        todaySummary.minTemp,
+                        todaySummary.avgTemp,
+                        todaySummary.maxTemp
+                    )
+                    views.setTextViewText(R.id.widget_stats, stats)
+                } else {
+                    views.setTextViewText(R.id.widget_stats, "Min: --° | Ort: --° | Max: --°")
+                }
             } else {
+                views.setTextViewText(R.id.widget_location, "Konum seçilmedi")
                 views.setTextViewText(R.id.widget_temp, "--°C")
-                views.setTextViewText(R.id.widget_condition, "Henüz ölçüm yok")
-                views.setTextViewText(R.id.widget_time, "Yenile'ye basın")
-            }
-
-            if (todaySummary != null) {
-                val stats = String.format(
-                    Locale.US,
-                    "Min: %.1f°  |  Ort: %.1f°  |  Max: %.1f°",
-                    todaySummary.minTemp,
-                    todaySummary.avgTemp,
-                    todaySummary.maxTemp
-                )
-                views.setTextViewText(R.id.widget_stats, stats)
-            } else {
-                views.setTextViewText(R.id.widget_stats, "Min: --°  |  Ort: --°  |  Max: --°")
+                views.setTextViewText(R.id.widget_condition, "Uygulamadan konum ekleyin")
+                views.setTextViewText(R.id.widget_stats, "Min: --° | Ort: --° | Max: --°")
+                views.setTextViewText(R.id.widget_time, "--:--")
             }
 
             val openAppIntent = Intent(context, MainActivity::class.java)

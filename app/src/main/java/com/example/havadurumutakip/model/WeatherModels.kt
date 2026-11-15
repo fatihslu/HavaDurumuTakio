@@ -29,8 +29,13 @@ data class WeatherMeasurement(
     val latitude: Double,
     val longitude: Double,
     val temperature: Double,
+    val apparentTemp: Double,
     val humidity: Int,
     val windSpeed: Double,
+    val precipitation: Double,
+    val cloudCover: Int,
+    val isDay: Boolean,
+    val uvIndex: Double,
     val weatherCode: Int
 )
 
@@ -40,5 +45,8 @@ data class DailySummary(
     val minTemp: Double,
     val maxTemp: Double,
     val avgTemp: Double,
+    val totalPrecipitation: Double,
+    val avgCloudCover: Int,
+    val maxUvIndex: Double,
     val measurementCount: Int
 )

@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -180,21 +181,32 @@ fun GlassChipButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    selected: Boolean = false,
     accent: Color = Color.White
 ) {
     val shape = RoundedCornerShape(50)
+    val bgBrush = if (selected) {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0x6638BDF8),
+                Color(0x3338BDF8)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = if (enabled) 0.20f else 0.08f),
+                Color.White.copy(alpha = if (enabled) 0.08f else 0.04f)
+            )
+        )
+    }
+    val borderColor = if (selected) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.30f)
+
     Box(
         modifier = modifier
             .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (enabled) 0.20f else 0.08f),
-                        Color.White.copy(alpha = if (enabled) 0.08f else 0.04f)
-                    )
-                )
-            )
-            .border(1.dp, Color.White.copy(alpha = 0.30f), shape)
+            .background(bgBrush)
+            .border(1.dp, borderColor, shape)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
@@ -203,7 +215,8 @@ fun GlassChipButton(
             text = text,
             color = if (enabled) accent else Color.White.copy(alpha = 0.45f),
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
         )
     }
 }
@@ -214,12 +227,17 @@ fun WeatherTrackerApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val refreshTick by WeatherRepository.refreshTick.collectAsState()
+    val locPrefs = remember { LocationPreferences(context) }
 
-    var currentLocation by remember { mutableStateOf(LocationPreferences(context).getLocation()) }
+    var trackedLocations by remember { mutableStateOf(locPrefs.getLocations()) }
+    var primaryLocName by remember { mutableStateOf(locPrefs.getPrimaryLocationName()) }
+    var latestByLocation by remember { mutableStateOf<Map<String, WeatherMeasurement?>>(emptyMap()) }
     var dailySummaries by remember { mutableStateOf<List<DailySummary>>(emptyList()) }
-    var latestMeasurement by remember { mutableStateOf<WeatherMeasurement?>(null) }
+    var selectedFilterLocation by remember { mutableStateOf<String?>(null) }
+
     var selectedDay by remember { mutableStateOf<DailySummary?>(null) }
     var dayPendingDelete by remember { mutableStateOf<DailySummary?>(null) }
+    var locationPendingRemove by remember { mutableStateOf<SavedLocation?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var isMeasuring by remember { mutableStateOf(false) }
@@ -291,27 +309,44 @@ fun WeatherTrackerApp() {
         }
     }
 
-    LaunchedEffect(refreshTick, currentLocation) {
+    fun reloadLocationsFromPrefs() {
+        trackedLocations = locPrefs.getLocations()
+        primaryLocName = locPrefs.getPrimaryLocationName()
+    }
+
+    LaunchedEffect(refreshTick, trackedLocations) {
         withContext(Dispatchers.IO) {
             val db = WeatherDatabaseHelper(context)
             dailySummaries = db.getDailySummaries()
-            latestMeasurement = db.getLatestMeasurementForLocation(currentLocation.name)
+            val map = mutableMapOf<String, WeatherMeasurement?>()
+            for (loc in trackedLocations) {
+                map[loc.name] = db.getLatestMeasurementForLocation(loc.name)
+            }
+            latestByLocation = map
             db.close()
         }
     }
 
     LaunchedEffect(Unit) {
-        val hasData = withContext(Dispatchers.IO) {
+        val needsInitial = withContext(Dispatchers.IO) {
             val db = WeatherDatabaseHelper(context)
-            val m = db.getLatestMeasurementForLocation(currentLocation.name)
+            val anyMissing = trackedLocations.any { db.getLatestMeasurementForLocation(it.name) == null }
             db.close()
-            m != null
+            anyMissing && trackedLocations.isNotEmpty()
         }
-        if (!hasData) {
+        if (needsInitial) {
             isMeasuring = true
-            WeatherRepository.measureAndSaveNow(context)
+            WeatherRepository.measureAndSaveAll(context)
             isMeasuring = false
         }
+    }
+
+    val filterNames = remember(dailySummaries) {
+        dailySummaries.map { it.locationName }.distinct()
+    }
+    val visibleSummaries = remember(dailySummaries, selectedFilterLocation) {
+        if (selectedFilterLocation == null) dailySummaries
+        else dailySummaries.filter { it.locationName == selectedFilterLocation }
     }
 
     if (selectedDay != null) {
@@ -344,7 +379,7 @@ fun WeatherTrackerApp() {
                             modifier = Modifier.padding(end = 6.dp)
                         )
                         GlassChipButton(
-                            text = "📍 Konum",
+                            text = "➕ Konum",
                             onClick = { showLocationDialog = true },
                             modifier = Modifier.padding(end = 10.dp)
                         )
@@ -352,122 +387,174 @@ fun WeatherTrackerApp() {
                 )
             }
         ) { padding ->
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .padding(padding)
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp)
             ) {
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    highlight = true
-                ) {
-                    Text(
-                        text = currentLocation.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val latest = latestMeasurement
-                    if (latest != null) {
-                        val (emoji, desc) = OpenMeteoClient.weatherDescription(latest.weatherCode)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = String.format(Locale.US, "%.1f °C", latest.temperature),
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Column {
-                                Text(
-                                    text = "$emoji $desc",
-                                    fontSize = 16.sp,
-                                    color = Color(0xFFE0F2FE)
-                                )
-                                Text(
-                                    text = "Son ölçüm: ${latest.dateKey} ${latest.timeLabel}",
-                                    fontSize = 12.sp,
-                                    color = Color.White.copy(alpha = 0.72f)
-                                )
-                            }
-                        }
-                    } else {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            "Bu konum için henüz ölçüm alınmadı.",
-                            color = Color.White.copy(alpha = 0.8f)
+                            text = "Takip Edilen Konumlar (${trackedLocations.size})",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
                         )
                     }
+                }
 
+                if (trackedLocations.isEmpty()) {
+                    item {
+                        GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) {
+                            Text(
+                                "Henüz takip edilen konum yok. Sağ üstten '➕ Konum' ile şehir/ilçe ekleyin.",
+                                color = Color.White
+                            )
+                        }
+                    }
+                } else {
+                    items(trackedLocations, key = { it.name }) { loc ->
+                        val latest = latestByLocation[loc.name]
+                        val isWidgetLoc = loc.name == primaryLocName
+                        TrackedLocationCard(
+                            location = loc,
+                            latest = latest,
+                            isWidgetPrimary = isWidgetLoc,
+                            onSetWidgetPrimary = {
+                                locPrefs.setPrimaryLocationName(loc.name)
+                                primaryLocName = loc.name
+                                WeatherWidgetProvider.updateAllWidgets(context)
+                                Toast.makeText(context, "Widget konumu: ${loc.name}", Toast.LENGTH_SHORT).show()
+                            },
+                            onRemoveClick = { locationPendingRemove = loc }
+                        )
+                    }
+                }
+
+                item {
                     if (statusError != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "Hata: $statusError",
                             color = Color(0xFFFDA4AF),
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
                     GlassChipButton(
-                        text = if (isMeasuring) "Ölçülüyor..." else "↻ Şimdi Ölç ve Kaydet",
-                        enabled = !isMeasuring,
+                        text = if (isMeasuring) "Tüm Konumlar Ölçülüyor..." else "↻ Tüm Konumları Ölç ve Kaydet",
+                        enabled = !isMeasuring && trackedLocations.isNotEmpty(),
                         onClick = {
                             scope.launch {
                                 isMeasuring = true
                                 statusError = null
-                                val res = WeatherRepository.measureAndSaveNow(context)
+                                val res = WeatherRepository.measureAndSaveAll(context)
                                 res.onFailure { statusError = it.localizedMessage }
                                 isMeasuring = false
                             }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(42.dp),
+                            .height(44.dp),
                         accent = Color(0xFFE0F2FE)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
-                Text(
-                    text = "Günlük Geçmiş",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(10.dp))
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Günlük Geçmiş",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
 
-                if (dailySummaries.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "Henüz geçmiş kaydı yok.",
-                            color = Color.White.copy(alpha = 0.7f)
-                        )
+                if (filterNames.size > 1) {
+                    item {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                GlassChipButton(
+                                    text = "Tümü",
+                                    selected = selectedFilterLocation == null,
+                                    onClick = { selectedFilterLocation = null }
+                                )
+                            }
+                            items(filterNames) { name ->
+                                val shortName = name.substringBefore(",")
+                                GlassChipButton(
+                                    text = shortName,
+                                    selected = selectedFilterLocation == name,
+                                    onClick = { selectedFilterLocation = name }
+                                )
+                            }
+                        }
                     }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 16.dp)
-                    ) {
-                        items(
-                            items = dailySummaries,
-                            key = { "${it.dateKey}|${it.locationName}" }
-                        ) { day ->
-                            DailySummaryCard(
-                                day = day,
-                                onClick = { selectedDay = day },
-                                onDeleteClick = { dayPendingDelete = day }
+                }
+
+                if (visibleSummaries.isEmpty()) {
+                    item {
+                        GlassCard(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "Henüz geçmiş kaydı yok.",
+                                color = Color.White.copy(alpha = 0.75f)
                             )
                         }
+                    }
+                } else {
+                    items(
+                        items = visibleSummaries,
+                        key = { "${it.dateKey}|${it.locationName}" }
+                    ) { day ->
+                        DailySummaryCard(
+                            day = day,
+                            onClick = { selectedDay = day },
+                            onDeleteClick = { dayPendingDelete = day }
+                        )
                     }
                 }
             }
         }
+    }
+
+    if (locationPendingRemove != null) {
+        val target = locationPendingRemove!!
+        AlertDialog(
+            containerColor = Color(0xF0131C31),
+            titleContentColor = Color.White,
+            textContentColor = Color(0xFFCBD5E1),
+            onDismissRequest = { locationPendingRemove = null },
+            title = { Text("Konumu Kaldır") },
+            text = {
+                Text("${target.name} artık otomatik saatlik ölçümlerden çıkarılsın mı? (Eski geçmiş kayıtları silinmez.)")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        locationPendingRemove = null
+                        locPrefs.removeLocation(target.name)
+                        if (selectedFilterLocation == target.name) {
+                            selectedFilterLocation = null
+                        }
+                        reloadLocationsFromPrefs()
+                        WeatherWidgetProvider.updateAllWidgets(context)
+                    }
+                ) {
+                    Text("Kaldır", color = Color(0xFFFB7185), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { locationPendingRemove = null }) {
+                    Text("İptal", color = Color(0xFF94A3B8))
+                }
+            }
+        )
     }
 
     if (dayPendingDelete != null) {
@@ -515,12 +602,12 @@ fun WeatherTrackerApp() {
             onDismiss = { showLocationDialog = false },
             onSelectLocation = { picked ->
                 val saved = SavedLocation(picked.displayName, picked.latitude, picked.longitude)
-                LocationPreferences(context).saveLocation(saved)
-                currentLocation = saved
+                locPrefs.addLocation(saved)
+                reloadLocationsFromPrefs()
                 showLocationDialog = false
                 scope.launch {
                     isMeasuring = true
-                    WeatherRepository.measureAndSaveNow(context)
+                    WeatherRepository.measureAndSaveAll(context)
                     WeatherWidgetProvider.updateAllWidgets(context)
                     isMeasuring = false
                 }
@@ -538,7 +625,7 @@ fun WeatherTrackerApp() {
             text = {
                 Column {
                     Text(
-                        "Tüm geçmişiniz 2 sayfalı gerçek Excel dosyasına aktarılır:\n• Günlük Özet (Min / Ort / Max)\n• Tüm Saatlik Kayıtlar",
+                        "Tüm konumlarınız ve verileriniz 2 sayfalı Excel dosyasına aktarılır:\n• Günlük Özet (Min, Ort, Max, Yağış, Bulut, UV)\n• Saatlik Kayıtlar (Sıcaklık, Hissedilen, Nem, Yağış, Güneş/Bulut, UV, Rüzgâr)",
                         fontSize = 14.sp
                     )
                     if (isExporting) {
@@ -582,6 +669,84 @@ fun WeatherTrackerApp() {
 }
 
 @Composable
+fun TrackedLocationCard(
+    location: SavedLocation,
+    latest: WeatherMeasurement?,
+    isWidgetPrimary: Boolean,
+    onSetWidgetPrimary: () -> Unit,
+    onRemoveClick: () -> Unit
+) {
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        highlight = isWidgetPrimary
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = location.name,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            GlassChipButton(
+                text = if (isWidgetPrimary) "⭐ Widget" else "☆ Widget Yap",
+                selected = isWidgetPrimary,
+                onClick = onSetWidgetPrimary
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            GlassChipButton(
+                text = "🗑️",
+                onClick = onRemoveClick,
+                accent = Color(0xFFFDA4AF)
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (latest != null) {
+            val (emoji, desc) = OpenMeteoClient.weatherDescription(latest.weatherCode)
+            val sun = OpenMeteoClient.sunCondition(latest.isDay, latest.cloudCover, latest.precipitation)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = String.format(Locale.US, "%.1f °C", latest.temperature),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column {
+                    Text(
+                        text = "$emoji $desc  •  Hissedilen: ${String.format(Locale.US, "%.1f°", latest.apparentTemp)}",
+                        fontSize = 14.sp,
+                        color = Color(0xFFE0F2FE)
+                    )
+                    Text(
+                        text = "☀️ $sun (%${latest.cloudCover} bulut)  •  💧 ${latest.precipitation} mm",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.80f)
+                    )
+                    Text(
+                        text = "UV: ${latest.uvIndex}  •  Son: ${latest.dateKey} ${latest.timeLabel}",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.65f)
+                    )
+                }
+            }
+        } else {
+            Text(
+                "Bu konum için henüz ölçüm alınmadı.",
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 13.sp
+            )
+        }
+    }
+}
+
+@Composable
 fun DailySummaryCard(
     day: DailySummary,
     onClick: () -> Unit,
@@ -616,7 +781,7 @@ fun DailySummaryCard(
                 accent = Color(0xFFFDA4AF)
             )
         }
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -625,6 +790,18 @@ fun DailySummaryCard(
             TempBadge("Ort", day.avgTemp, Color(0xFF2DD4BF))
             TempBadge("Max", day.maxTemp, Color(0xFFFB923C))
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = String.format(
+                Locale.US,
+                "💧 Toplam Yağış: %.1f mm  •  ☁️ Ort. Bulut: %%%d  •  ☀️ Max UV: %.1f",
+                day.totalPrecipitation,
+                day.avgCloudCover,
+                day.maxUvIndex
+            ),
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.72f)
+        )
     }
 }
 
@@ -664,6 +841,7 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
     val liveMin = if (hourlyList.isNotEmpty()) hourlyList.minOf { it.temperature } else summary.minTemp
     val liveAvg = if (hourlyList.isNotEmpty()) hourlyList.map { it.temperature }.average() else summary.avgTemp
     val liveMax = if (hourlyList.isNotEmpty()) hourlyList.maxOf { it.temperature } else summary.maxTemp
+    val livePrecip = if (hourlyList.isNotEmpty()) hourlyList.sumOf { it.precipitation } else summary.totalPrecipitation
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -708,6 +886,13 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
                     TempBadge("Ortalama", liveAvg, Color(0xFF2DD4BF))
                     TempBadge("Max", liveMax, Color(0xFFFB923C))
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = String.format(Locale.US, "💧 Günlük Toplam Yağış: %.1f mm", livePrecip),
+                    fontSize = 12.sp,
+                    color = Color(0xFFE0F2FE),
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -725,6 +910,7 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
             ) {
                 items(hourlyList, key = { it.id }) { item ->
                     val (emoji, desc) = OpenMeteoClient.weatherDescription(item.weatherCode)
+                    val sun = OpenMeteoClient.sunCondition(item.isDay, item.cloudCover, item.precipitation)
                     GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 18.dp) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -740,8 +926,13 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
                                 )
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "Nem: %${item.humidity}  •  Rüzgâr: ${item.windSpeed} km/sa",
+                                    text = "☀️ $sun (%${item.cloudCover})  •  💧 ${item.precipitation} mm  •  UV ${item.uvIndex}",
                                     fontSize = 12.sp,
+                                    color = Color(0xFFBAE6FD)
+                                )
+                                Text(
+                                    text = "Hissedilen: ${String.format(Locale.US, "%.1f°", item.apparentTemp)}  •  Nem: %${item.humidity}  •  Rüzgâr: ${item.windSpeed} km/sa",
+                                    fontSize = 11.sp,
                                     color = Color.White.copy(alpha = 0.72f)
                                 )
                             }
@@ -752,7 +943,7 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
                                     fontSize = 18.sp,
                                     color = Color(0xFF38BDF8)
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 GlassChipButton(
                                     text = "🗑️",
                                     onClick = { itemPendingDelete = item },
@@ -827,7 +1018,7 @@ fun LocationSearchDialog(
         titleContentColor = Color.White,
         textContentColor = Color(0xFFCBD5E1),
         onDismissRequest = onDismiss,
-        title = { Text("Konum Ara") },
+        title = { Text("Konum Ekle") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

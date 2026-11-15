@@ -18,7 +18,7 @@ class WeatherSyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val result = WeatherRepository.measureAndSaveNow(applicationContext)
+        val result = WeatherRepository.measureAndSaveAll(applicationContext)
         return if (result.isSuccess) Result.success() else Result.retry()
     }
 
