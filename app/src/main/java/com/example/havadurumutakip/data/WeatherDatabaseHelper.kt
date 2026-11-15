@@ -52,6 +52,22 @@ class WeatherDatabaseHelper(context: Context) :
         return writableDatabase.insert("measurements", null, values)
     }
 
+    fun deleteDay(dateKey: String, locationName: String): Int {
+        return writableDatabase.delete(
+            "measurements",
+            "date_key = ? AND location_name = ?",
+            arrayOf(dateKey, locationName)
+        )
+    }
+
+    fun deleteMeasurementById(id: Long): Int {
+        return writableDatabase.delete(
+            "measurements",
+            "id = ?",
+            arrayOf(id.toString())
+        )
+    }
+
     fun getDailySummaries(): List<DailySummary> {
         val list = mutableListOf<DailySummary>()
         val sql = """
