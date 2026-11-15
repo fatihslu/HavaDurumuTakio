@@ -56,7 +56,8 @@ object WeatherRepository {
                                     cloudCover = w.cloudCover,
                                     isDay = w.isDay,
                                     uvIndex = w.uvIndex,
-                                    weatherCode = w.weatherCode
+                                    weatherCode = w.weatherCode,
+                                    extraJson = w.extraJson
                                 )
                             }
                         }

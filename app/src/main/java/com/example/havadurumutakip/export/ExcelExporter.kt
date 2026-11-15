@@ -2,7 +2,7 @@ package com.example.havadurumutakip.export
 
 import com.example.havadurumutakip.model.DailySummary
 import com.example.havadurumutakip.model.WeatherMeasurement
-import com.example.havadurumutakip.network.OpenMeteoClient
+import com.example.havadurumutakip.model.WeatherMetric
 import java.io.OutputStream
 import java.util.Locale
 import java.util.zip.ZipEntry
@@ -18,8 +18,11 @@ object ExcelExporter {
     fun writeXlsx(
         outputStream: OutputStream,
         summaries: List<DailySummary>,
-        measurements: List<WeatherMeasurement>
+        measurements: List<WeatherMeasurement>,
+        selectedMetrics: Set<WeatherMetric>
     ) {
+        val orderedMetrics = WeatherMetric.entries.filter { it in selectedMetrics }
+
         val sheet1Rows = mutableListOf<List<CellValue>>()
         sheet1Rows.add(
             listOf(
@@ -39,53 +42,49 @@ object ExcelExporter {
                 listOf(
                     CellValue.Text(s.dateKey),
                     CellValue.Text(s.locationName),
-                    CellValue.Number(round1(s.minTemp)),
-                    CellValue.Number(round1(s.avgTemp)),
-                    CellValue.Number(round1(s.maxTemp)),
-                    CellValue.Number(round1(s.totalPrecipitation)),
+                    CellValue.Number(round2(s.minTemp)),
+                    CellValue.Number(round2(s.avgTemp)),
+                    CellValue.Number(round2(s.maxTemp)),
+                    CellValue.Number(round2(s.totalPrecipitation)),
                     CellValue.Number(s.avgCloudCover.toDouble()),
-                    CellValue.Number(round1(s.maxUvIndex)),
+                    CellValue.Number(round2(s.maxUvIndex)),
                     CellValue.Number(s.measurementCount.toDouble())
                 )
             )
         }
 
         val sheet2Rows = mutableListOf<List<CellValue>>()
-        sheet2Rows.add(
-            listOf(
-                CellValue.Text("Tarih"),
-                CellValue.Text("Saat"),
-                CellValue.Text("Konum"),
-                CellValue.Text("Sicaklik (C)"),
-                CellValue.Text("Hissedilen (C)"),
-                CellValue.Text("Nem (%)"),
-                CellValue.Text("Yagis (mm)"),
-                CellValue.Text("Bulutluluk (%)"),
-                CellValue.Text("Gunes Durumu"),
-                CellValue.Text("UV Indeksi"),
-                CellValue.Text("Ruzgar (km/sa)"),
-                CellValue.Text("Hava Durumu")
-            )
+        val header2 = mutableListOf(
+            CellValue.Text("Tarih"),
+            CellValue.Text("Saat"),
+            CellValue.Text("Konum")
         )
+        for (metric in orderedMetrics) {
+            header2.add(CellValue.Text(metric.excelHeader))
+        }
+        sheet2Rows.add(header2)
+
         for (m in measurements) {
-            val (_, desc) = OpenMeteoClient.weatherDescription(m.weatherCode)
-            val sun = OpenMeteoClient.sunCondition(m.isDay, m.cloudCover, m.precipitation)
-            sheet2Rows.add(
-                listOf(
-                    CellValue.Text(m.dateKey),
-                    CellValue.Text(m.timeLabel),
-                    CellValue.Text(m.locationName),
-                    CellValue.Number(round1(m.temperature)),
-                    CellValue.Number(round1(m.apparentTemp)),
-                    CellValue.Number(m.humidity.toDouble()),
-                    CellValue.Number(round1(m.precipitation)),
-                    CellValue.Number(m.cloudCover.toDouble()),
-                    CellValue.Text(sun),
-                    CellValue.Number(round1(m.uvIndex)),
-                    CellValue.Number(round1(m.windSpeed)),
-                    CellValue.Text(desc)
-                )
+            val extra = m.extraObj()
+            val row = mutableListOf<CellValue>(
+                CellValue.Text(m.dateKey),
+                CellValue.Text(m.timeLabel),
+                CellValue.Text(m.locationName)
             )
+            for (metric in orderedMetrics) {
+                val num = metric.excelNumberOrNull(m, extra)
+                if (num != null) {
+                    row.add(CellValue.Number(round2(num)))
+                } else {
+                    row.add(CellValue.Text(metric.formatDisplay(m, extra)))
+                }
+            }
+            sheet2Rows.add(row)
+        }
+
+        val sheet2Widths = mutableListOf(14, 10, 32)
+        orderedMetrics.forEach { metric ->
+            sheet2Widths.add(maxOf(14, metric.excelHeader.length + 3))
         }
 
         ZipOutputStream(outputStream).use { zos ->
@@ -101,13 +100,23 @@ object ExcelExporter {
             writeEntry(
                 zos,
                 "xl/worksheets/sheet2.xml",
-                worksheetXml(sheet2Rows, listOf(14, 10, 34, 14, 15, 12, 14, 16, 18, 12, 16, 18))
+                worksheetXml(sheet2Rows, sheet2Widths)
             )
         }
     }
 
-    private fun round1(v: Double): Double =
-        String.format(Locale.US, "%.1f", v).toDouble()
+    private fun round2(v: Double): Double =
+        String.format(Locale.US, "%.2f", v).toDouble()
+
+    private fun colLetters(colIndex: Int): String {
+        var n = colIndex
+        val sb = StringBuilder()
+        while (n >= 0) {
+            sb.append(('A' + (n % 26)))
+            n = (n / 26) - 1
+        }
+        return sb.reverse().toString()
+    }
 
     private fun writeEntry(zos: ZipOutputStream, path: String, content: String) {
         zos.putNextEntry(ZipEntry(path))
@@ -166,8 +175,7 @@ object ExcelExporter {
             val rowNum = rIdx + 1
             sb.append("    <row r=\"$rowNum\">\n")
             row.forEachIndexed { cIdx, cell ->
-                val colLetter = ('A' + cIdx)
-                val ref = "$colLetter$rowNum"
+                val ref = "${colLetters(cIdx)}$rowNum"
                 when (cell) {
                     is CellValue.Text -> {
                         sb.append("      <c r=\"$ref\" t=\"inlineStr\"><is><t>${escapeXml(cell.value)}</t></is></c>\n")
@@ -176,7 +184,7 @@ object ExcelExporter {
                         val numStr = if (cell.value % 1.0 == 0.0) {
                             cell.value.toLong().toString()
                         } else {
-                            String.format(Locale.US, "%.1f", cell.value)
+                            String.format(Locale.US, "%.2f", cell.value)
                         }
                         sb.append("      <c r=\"$ref\"><v>$numStr</v></c>\n")
                     }

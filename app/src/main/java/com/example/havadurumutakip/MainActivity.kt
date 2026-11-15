@@ -40,8 +40,11 @@ import com.example.havadurumutakip.data.WeatherRepository
 import com.example.havadurumutakip.export.ExcelExporter
 import com.example.havadurumutakip.model.DailySummary
 import com.example.havadurumutakip.model.GeocodingResult
+import com.example.havadurumutakip.model.MetricCategory
+import com.example.havadurumutakip.model.MetricPreferences
 import com.example.havadurumutakip.model.SavedLocation
 import com.example.havadurumutakip.model.WeatherMeasurement
+import com.example.havadurumutakip.model.WeatherMetric
 import com.example.havadurumutakip.network.OpenMeteoClient
 import com.example.havadurumutakip.widget.WeatherWidgetProvider
 import com.example.havadurumutakip.worker.WeatherSyncWorker
@@ -228,9 +231,11 @@ fun WeatherTrackerApp() {
     val scope = rememberCoroutineScope()
     val refreshTick by WeatherRepository.refreshTick.collectAsState()
     val locPrefs = remember { LocationPreferences(context) }
+    val metricPrefs = remember { MetricPreferences(context) }
 
     var trackedLocations by remember { mutableStateOf(locPrefs.getLocations()) }
     var primaryLocName by remember { mutableStateOf(locPrefs.getPrimaryLocationName()) }
+    var selectedMetrics by remember { mutableStateOf(metricPrefs.getSelectedMetrics()) }
     var latestByLocation by remember { mutableStateOf<Map<String, WeatherMeasurement?>>(emptyMap()) }
     var dailySummaries by remember { mutableStateOf<List<DailySummary>>(emptyList()) }
     var selectedFilterLocation by remember { mutableStateOf<String?>(null) }
@@ -239,6 +244,7 @@ fun WeatherTrackerApp() {
     var dayPendingDelete by remember { mutableStateOf<DailySummary?>(null) }
     var locationPendingRemove by remember { mutableStateOf<SavedLocation?>(null) }
     var showLocationDialog by remember { mutableStateOf(false) }
+    var showMetricDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var isMeasuring by remember { mutableStateOf(false) }
     var isExporting by remember { mutableStateOf(false) }
@@ -259,7 +265,7 @@ fun WeatherTrackerApp() {
                         val measurements = db.getAllMeasurements()
                         db.close()
                         context.contentResolver.openOutputStream(uri)?.use { out ->
-                            ExcelExporter.writeXlsx(out, summaries, measurements)
+                            ExcelExporter.writeXlsx(out, summaries, measurements, selectedMetrics)
                         } ?: error("Dosya açılamadı")
                     }
                 }
@@ -286,7 +292,7 @@ fun WeatherTrackerApp() {
                     val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
                     val file = File(exportDir, "hava_durumu_${LocalDate.now()}.xlsx")
                     file.outputStream().use { out ->
-                        ExcelExporter.writeXlsx(out, summaries, measurements)
+                        ExcelExporter.writeXlsx(out, summaries, measurements, selectedMetrics)
                     }
                     FileProvider.getUriForFile(
                         context,
@@ -353,6 +359,8 @@ fun WeatherTrackerApp() {
         BackHandler { selectedDay = null }
         DayDetailScreen(
             summary = selectedDay!!,
+            selectedMetrics = selectedMetrics,
+            onOpenMetricMenu = { showMetricDialog = true },
             onBack = { selectedDay = null }
         )
     } else {
@@ -366,22 +374,10 @@ fun WeatherTrackerApp() {
                     ),
                     title = {
                         Text(
-                            "Hava Durumu",
+                            "Hava Durumu Takip",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
                             maxLines = 1
-                        )
-                    },
-                    actions = {
-                        GlassChipButton(
-                            text = "📊 Excel",
-                            onClick = { showExportDialog = true },
-                            modifier = Modifier.padding(end = 6.dp)
-                        )
-                        GlassChipButton(
-                            text = "➕ Konum",
-                            onClick = { showLocationDialog = true },
-                            modifier = Modifier.padding(end = 10.dp)
                         )
                     }
                 )
@@ -393,28 +389,47 @@ fun WeatherTrackerApp() {
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp)
+                contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp)
             ) {
+                // Hızlı Menü Barı
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Takip Edilen Konumlar (${trackedLocations.size})",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            GlassChipButton(
+                                text = "⚙️ Veriler (${selectedMetrics.size}/${WeatherMetric.entries.size})",
+                                onClick = { showMetricDialog = true },
+                                selected = true
+                            )
+                        }
+                        item {
+                            GlassChipButton(
+                                text = "➕ Konum Ekle",
+                                onClick = { showLocationDialog = true }
+                            )
+                        }
+                        item {
+                            GlassChipButton(
+                                text = "📊 Excel İndir",
+                                onClick = { showExportDialog = true }
+                            )
+                        }
                     }
+                }
+
+                item {
+                    Text(
+                        text = "Takip Edilen Konumlar (${trackedLocations.size})",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
                 }
 
                 if (trackedLocations.isEmpty()) {
                     item {
                         GlassCard(modifier = Modifier.fillMaxWidth(), highlight = true) {
                             Text(
-                                "Henüz takip edilen konum yok. Sağ üstten '➕ Konum' ile şehir/ilçe ekleyin.",
+                                "Henüz takip edilen konum yok. Yukarıdan '➕ Konum Ekle' ile şehir/ilçe ekleyin.",
                                 color = Color.White
                             )
                         }
@@ -426,6 +441,7 @@ fun WeatherTrackerApp() {
                         TrackedLocationCard(
                             location = loc,
                             latest = latest,
+                            selectedMetrics = selectedMetrics,
                             isWidgetPrimary = isWidgetLoc,
                             onSetWidgetPrimary = {
                                 locPrefs.setPrimaryLocationName(loc.name)
@@ -467,7 +483,7 @@ fun WeatherTrackerApp() {
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Günlük Geçmiş",
                         fontSize = 18.sp,
@@ -521,6 +537,18 @@ fun WeatherTrackerApp() {
                 }
             }
         }
+    }
+
+    if (showMetricDialog) {
+        MetricSelectorDialog(
+            currentSelection = selectedMetrics,
+            onDismiss = { showMetricDialog = false },
+            onSave = { updated ->
+                metricPrefs.saveSelectedMetrics(updated)
+                selectedMetrics = updated
+                showMetricDialog = false
+            }
+        )
     }
 
     if (locationPendingRemove != null) {
@@ -625,7 +653,7 @@ fun WeatherTrackerApp() {
             text = {
                 Column {
                     Text(
-                        "Tüm konumlarınız ve verileriniz 2 sayfalı Excel dosyasına aktarılır:\n• Günlük Özet (Min, Ort, Max, Yağış, Bulut, UV)\n• Saatlik Kayıtlar (Sıcaklık, Hissedilen, Nem, Yağış, Güneş/Bulut, UV, Rüzgâr)",
+                        "2 sayfalı Excel dosyası oluşturulur:\n• Günlük Özet\n• Saatlik Kayıtlar (⚙️ Veriler menüsünden seçtiğiniz ${selectedMetrics.size} veri sütunuyla)",
                         fontSize = 14.sp
                     )
                     if (isExporting) {
@@ -669,9 +697,54 @@ fun WeatherTrackerApp() {
 }
 
 @Composable
+fun MetricDetailsGrid(
+    measurement: WeatherMeasurement,
+    selectedMetrics: Set<WeatherMetric>,
+    excludeTopBasic: Boolean = false
+) {
+    val extra = remember(measurement.extraJson) { measurement.extraObj() }
+    val list = remember(selectedMetrics, excludeTopBasic) {
+        WeatherMetric.entries.filter { m ->
+            m in selectedMetrics && (!excludeTopBasic || (m != WeatherMetric.TEMPERATURE && m != WeatherMetric.WEATHER_DESC))
+        }
+    }
+    if (list.isEmpty()) return
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        list.chunked(2).forEach { pair ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                pair.forEach { metric ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = metric.label,
+                            fontSize = 10.sp,
+                            color = Color.White.copy(alpha = 0.62f),
+                            maxLines = 1
+                        )
+                        Text(
+                            text = metric.formatDisplay(measurement, extra),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFE0F2FE)
+                        )
+                    }
+                }
+                if (pair.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun TrackedLocationCard(
     location: SavedLocation,
     latest: WeatherMeasurement?,
+    selectedMetrics: Set<WeatherMetric>,
     isWidgetPrimary: Boolean,
     onSetWidgetPrimary: () -> Unit,
     onRemoveClick: () -> Unit
@@ -694,7 +767,7 @@ fun TrackedLocationCard(
             )
             Spacer(modifier = Modifier.width(8.dp))
             GlassChipButton(
-                text = if (isWidgetPrimary) "⭐ Widget" else "☆ Widget Yap",
+                text = if (isWidgetPrimary) "⭐ Widget" else "☆ Widget",
                 selected = isWidgetPrimary,
                 onClick = onSetWidgetPrimary
             )
@@ -709,7 +782,6 @@ fun TrackedLocationCard(
 
         if (latest != null) {
             val (emoji, desc) = OpenMeteoClient.weatherDescription(latest.weatherCode)
-            val sun = OpenMeteoClient.sunCondition(latest.isDay, latest.cloudCover, latest.precipitation)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = String.format(Locale.US, "%.1f °C", latest.temperature),
@@ -720,22 +792,26 @@ fun TrackedLocationCard(
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(
-                        text = "$emoji $desc  •  Hissedilen: ${String.format(Locale.US, "%.1f°", latest.apparentTemp)}",
-                        fontSize = 14.sp,
-                        color = Color(0xFFE0F2FE)
+                        text = "$emoji $desc",
+                        fontSize = 15.sp,
+                        color = Color(0xFFE0F2FE),
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "☀️ $sun (%${latest.cloudCover} bulut)  •  💧 ${latest.precipitation} mm",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.80f)
-                    )
-                    Text(
-                        text = "UV: ${latest.uvIndex}  •  Son: ${latest.dateKey} ${latest.timeLabel}",
+                        text = "Son ölçüm: ${latest.dateKey} ${latest.timeLabel}",
                         fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.65f)
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.14f))
+            Spacer(modifier = Modifier.height(8.dp))
+            MetricDetailsGrid(
+                measurement = latest,
+                selectedMetrics = selectedMetrics,
+                excludeTopBasic = true
+            )
         } else {
             Text(
                 "Bu konum için henüz ölçüm alınmadı.",
@@ -824,7 +900,12 @@ fun TempBadge(label: String, value: Double, color: Color) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
+fun DayDetailScreen(
+    summary: DailySummary,
+    selectedMetrics: Set<WeatherMetric>,
+    onOpenMetricMenu: () -> Unit,
+    onBack: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var hourlyList by remember { mutableStateOf<List<WeatherMeasurement>>(emptyList()) }
@@ -867,6 +948,13 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
                         onClick = onBack,
                         modifier = Modifier.padding(start = 8.dp, end = 6.dp)
                     )
+                },
+                actions = {
+                    GlassChipButton(
+                        text = "⚙️ Veriler",
+                        onClick = onOpenMetricMenu,
+                        modifier = Modifier.padding(end = 10.dp)
+                    )
                 }
             )
         }
@@ -897,7 +985,7 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Saatlik Ölçümler",
+                text = "Saatlik Ölçümler (${hourlyList.size})",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White
@@ -910,47 +998,40 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
             ) {
                 items(hourlyList, key = { it.id }) { item ->
                     val (emoji, desc) = OpenMeteoClient.weatherDescription(item.weatherCode)
-                    val sun = OpenMeteoClient.sunCondition(item.isDay, item.cloudCover, item.precipitation)
                     GlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 18.dp) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${item.timeLabel}  •  $emoji $desc",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = "☀️ $sun (%${item.cloudCover})  •  💧 ${item.precipitation} mm  •  UV ${item.uvIndex}",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFBAE6FD)
-                                )
-                                Text(
-                                    text = "Hissedilen: ${String.format(Locale.US, "%.1f°", item.apparentTemp)}  •  Nem: %${item.humidity}  •  Rüzgâr: ${item.windSpeed} km/sa",
-                                    fontSize = 11.sp,
-                                    color = Color.White.copy(alpha = 0.72f)
-                                )
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = String.format(Locale.US, "%.1f °C", item.temperature),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    color = Color(0xFF38BDF8)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                GlassChipButton(
-                                    text = "🗑️",
-                                    onClick = { itemPendingDelete = item },
-                                    accent = Color(0xFFFDA4AF)
-                                )
-                            }
+                            Text(
+                                text = "${item.timeLabel}  •  $emoji $desc",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.1f °C", item.temperature),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = Color(0xFF38BDF8)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            GlassChipButton(
+                                text = "🗑️",
+                                onClick = { itemPendingDelete = item },
+                                accent = Color(0xFFFDA4AF)
+                            )
                         }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.14f))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        MetricDetailsGrid(
+                            measurement = item,
+                            selectedMetrics = selectedMetrics,
+                            excludeTopBasic = true
+                        )
                     }
                 }
             }
@@ -1000,6 +1081,106 @@ fun DayDetailScreen(summary: DailySummary, onBack: () -> Unit) {
             }
         )
     }
+}
+
+@Composable
+fun MetricSelectorDialog(
+    currentSelection: Set<WeatherMetric>,
+    onDismiss: () -> Unit,
+    onSave: (Set<WeatherMetric>) -> Unit
+) {
+    var draft by remember { mutableStateOf(currentSelection) }
+
+    AlertDialog(
+        containerColor = Color(0xF5131C31),
+        titleContentColor = Color.White,
+        textContentColor = Color(0xFFCBD5E1),
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Gösterilecek & Excel Verileri", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Seçili: ${draft.size} / ${WeatherMetric.entries.size} (Arka planda hepsi kaydedilir)",
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    GlassChipButton(
+                        text = "Tümünü Seç",
+                        onClick = { draft = WeatherMetric.entries.toSet() },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GlassChipButton(
+                        text = "Varsayılan",
+                        onClick = { draft = WeatherMetric.entries.filter { it.defaultEnabled }.toSet() },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GlassChipButton(
+                        text = "Temizle",
+                        onClick = { draft = setOf(WeatherMetric.TEMPERATURE) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+
+                LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                    MetricCategory.entries.forEach { category ->
+                        item(key = "cat_${category.name}") {
+                            Text(
+                                text = category.title,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF38BDF8),
+                                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+                            )
+                        }
+                        val itemsInCat = WeatherMetric.entries.filter { it.category == category }
+                        items(itemsInCat, key = { it.name }) { metric ->
+                            val checked = metric in draft
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        draft = if (checked) draft - metric else draft + metric
+                                    }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { isChecked ->
+                                        draft = if (isChecked) draft + metric else draft - metric
+                                    }
+                                )
+                                Text(
+                                    text = metric.label,
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSave(draft) }) {
+                Text("Kaydet")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("İptal", color = Color(0xFF94A3B8))
+            }
+        }
+    )
 }
 
 @Composable

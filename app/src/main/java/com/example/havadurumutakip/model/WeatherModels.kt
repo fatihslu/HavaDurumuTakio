@@ -1,5 +1,7 @@
 package com.example.havadurumutakip.model
 
+import org.json.JSONObject
+
 data class SavedLocation(
     val name: String,
     val latitude: Double,
@@ -36,8 +38,11 @@ data class WeatherMeasurement(
     val cloudCover: Int,
     val isDay: Boolean,
     val uvIndex: Double,
-    val weatherCode: Int
-)
+    val weatherCode: Int,
+    val extraJson: String = "{}"
+) {
+    fun extraObj(): JSONObject = runCatching { JSONObject(extraJson) }.getOrElse { JSONObject() }
+}
 
 data class DailySummary(
     val dateKey: String,

@@ -9,7 +9,7 @@ import com.example.havadurumutakip.model.DailySummary
 import com.example.havadurumutakip.model.WeatherMeasurement
 
 class WeatherDatabaseHelper(context: Context) :
-    SQLiteOpenHelper(context, "weather_history.db", null, 2) {
+    SQLiteOpenHelper(context, "weather_history.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -30,7 +30,8 @@ class WeatherDatabaseHelper(context: Context) :
                 cloud_cover INTEGER NOT NULL DEFAULT 0,
                 is_day INTEGER NOT NULL DEFAULT 1,
                 uv_index REAL NOT NULL DEFAULT 0.0,
-                weather_code INTEGER NOT NULL
+                weather_code INTEGER NOT NULL,
+                extra_json TEXT NOT NULL DEFAULT '{}'
             )
             """.trimIndent()
         )
@@ -44,6 +45,9 @@ class WeatherDatabaseHelper(context: Context) :
             db.execSQL("ALTER TABLE measurements ADD COLUMN cloud_cover INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE measurements ADD COLUMN is_day INTEGER NOT NULL DEFAULT 1")
             db.execSQL("ALTER TABLE measurements ADD COLUMN uv_index REAL NOT NULL DEFAULT 0.0")
+        }
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE measurements ADD COLUMN extra_json TEXT NOT NULL DEFAULT '{}'")
         }
     }
 
@@ -64,6 +68,7 @@ class WeatherDatabaseHelper(context: Context) :
             put("is_day", if (m.isDay) 1 else 0)
             put("uv_index", m.uvIndex)
             put("weather_code", m.weatherCode)
+            put("extra_json", m.extraJson)
         }
         return writableDatabase.insert("measurements", null, values)
     }
@@ -127,7 +132,7 @@ class WeatherDatabaseHelper(context: Context) :
         val sql = """
             SELECT id, date_key, time_label, timestamp, location_name,
                    latitude, longitude, temperature, apparent_temp, humidity,
-                   wind_speed, precipitation, cloud_cover, is_day, uv_index, weather_code
+                   wind_speed, precipitation, cloud_cover, is_day, uv_index, weather_code, extra_json
             FROM measurements
             WHERE date_key = ? AND location_name = ?
             ORDER BY timestamp ASC
@@ -146,7 +151,7 @@ class WeatherDatabaseHelper(context: Context) :
         val sql = """
             SELECT id, date_key, time_label, timestamp, location_name,
                    latitude, longitude, temperature, apparent_temp, humidity,
-                   wind_speed, precipitation, cloud_cover, is_day, uv_index, weather_code
+                   wind_speed, precipitation, cloud_cover, is_day, uv_index, weather_code, extra_json
             FROM measurements
             ORDER BY timestamp DESC
         """.trimIndent()
@@ -163,7 +168,7 @@ class WeatherDatabaseHelper(context: Context) :
         val sql = """
             SELECT id, date_key, time_label, timestamp, location_name,
                    latitude, longitude, temperature, apparent_temp, humidity,
-                   wind_speed, precipitation, cloud_cover, is_day, uv_index, weather_code
+                   wind_speed, precipitation, cloud_cover, is_day, uv_index, weather_code, extra_json
             FROM measurements
             WHERE location_name = ?
             ORDER BY timestamp DESC
@@ -230,7 +235,8 @@ class WeatherDatabaseHelper(context: Context) :
             cloudCover = cursor.getInt(12),
             isDay = cursor.getInt(13) == 1,
             uvIndex = cursor.getDouble(14),
-            weatherCode = cursor.getInt(15)
+            weatherCode = cursor.getInt(15),
+            extraJson = cursor.getString(16) ?: "{}"
         )
     }
 }
