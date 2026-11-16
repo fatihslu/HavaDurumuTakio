@@ -39,15 +39,16 @@ data class CurrentWeatherData(
 
 object OpenMeteoClient {
 
+    private const val APP_USER_AGENT = "HavaDurumuTakip/1.1 (https://github.com/fatihslu/HavaDurumuTakio)"
+
     fun searchLocations(query: String): List<GeocodingResult> {
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        val urlStr = "https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=10&language=tr&format=json"
-        val root = JSONObject(httpGet(urlStr))
-        val resultsArray = root.optJSONArray("results") ?: return emptyList()
-        val list = mutableListOf<GeocodingResult>()
-        for (i in 0 until resultsArray.length()) {
-            val item = resultsArray.getJSONObject(i)
-            list.add(
+        val openMeteoList = runCatching {
+            val urlStr = "https://geocoding-api.open-meteo.com/v1/search?name=$encoded&count=10&language=tr&format=json"
+            val root = JSONObject(httpGet(urlStr))
+            val arr = root.optJSONArray("results") ?: JSONArray()
+            List(arr.length()) { i ->
+                val item = arr.getJSONObject(i)
                 GeocodingResult(
                     name = item.optString("name", ""),
                     admin1 = item.optString("admin1", ""),
@@ -55,25 +56,94 @@ object OpenMeteoClient {
                     latitude = item.getDouble("latitude"),
                     longitude = item.getDouble("longitude")
                 )
+            }
+        }.getOrNull()
+        if (openMeteoList != null) return openMeteoList
+
+        // Yedek konum arama (OpenStreetMap Nominatim)
+        val nomUrl = "https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=10&accept-language=tr"
+        val arr = JSONArray(httpGet(nomUrl))
+        val list = mutableListOf<GeocodingResult>()
+        for (i in 0 until arr.length()) {
+            val item = arr.getJSONObject(i)
+            val disp = item.optString("display_name", "")
+            val parts = disp.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            list.add(
+                GeocodingResult(
+                    name = parts.getOrNull(0) ?: disp,
+                    admin1 = parts.getOrNull(1) ?: "",
+                    country = parts.lastOrNull() ?: "",
+                    latitude = item.getString("lat").toDouble(),
+                    longitude = item.getString("lon").toDouble()
+                )
             )
         }
         return list
     }
 
     fun fetchCurrentWeather(latitude: Double, longitude: Double): CurrentWeatherData {
-        var lastErr: Exception? = null
-        for (attempt in 1..2) {
-            try {
-                return fetchOnce(latitude, longitude)
-            } catch (e: Exception) {
-                lastErr = e
-                if (attempt == 1) Thread.sleep(1200)
-            }
+        return runCatching {
+            fetchFromOpenMeteo(latitude, longitude)
+        }.getOrElse {
+            // Open-Meteo 403/hata verirse otomatik MET Norway (Yr.no) yedegine gec
+            fetchFromMetNorway(latitude, longitude)
         }
-        throw (lastErr ?: RuntimeException("Hava durumu alınamadı"))
     }
 
-    private fun fetchOnce(latitude: Double, longitude: Double): CurrentWeatherData {
+    private fun fetchFromMetNorway(latitude: Double, longitude: Double): CurrentWeatherData {
+        val latStr = String.format(Locale.US, "%.4f", latitude)
+        val lonStr = String.format(Locale.US, "%.4f", longitude)
+        val url = "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=$latStr&lon=$lonStr"
+        val root = JSONObject(httpGet(url))
+        val ts = root.getJSONObject("properties").getJSONArray("timeseries")
+        val data = ts.getJSONObject(0).getJSONObject("data")
+        val instant = data.getJSONObject("instant").getJSONObject("details")
+
+        val temp = safeObjDouble(instant, "air_temperature") ?: 0.0
+        val humidity = (safeObjDouble(instant, "relative_humidity") ?: 0.0).toInt()
+        val windKmh = ((safeObjDouble(instant, "wind_speed") ?: 0.0) * 3.6)
+        val cloud = (safeObjDouble(instant, "cloud_area_fraction") ?: 0.0).toInt()
+        val pressure = safeObjDouble(instant, "air_pressure_at_sea_level")
+        val windDir = safeObjDouble(instant, "wind_from_direction")?.toInt()
+
+        val next1h = data.optJSONObject("next_1_hours") ?: data.optJSONObject("next_6_hours")
+        val precip = next1h?.optJSONObject("details")?.let { safeObjDouble(it, "precipitation_amount") } ?: 0.0
+        val symbol = next1h?.optJSONObject("summary")?.optString("symbol_code", "") ?: ""
+        val isDay = !symbol.contains("_night")
+        val weatherCode = symbolToWmo(symbol)
+
+        val extra = JSONObject()
+        pressure?.let { extra.put("pressure_msl", it) }
+        windDir?.let { extra.put("wind_dir", it) }
+
+        return CurrentWeatherData(
+            temperature = temp,
+            apparentTemp = temp,
+            humidity = humidity,
+            precipitation = precip,
+            cloudCover = cloud,
+            isDay = isDay,
+            uvIndex = 0.0,
+            windSpeed = String.format(Locale.US, "%.1f", windKmh).toDouble(),
+            weatherCode = weatherCode,
+            extraJson = extra.toString(),
+            todayHourly = emptyList()
+        )
+    }
+
+    private fun symbolToWmo(symbol: String): Int = when {
+        symbol.contains("thunder") -> 95
+        symbol.contains("snow") -> 71
+        symbol.contains("sleet") -> 67
+        symbol.contains("rain") || symbol.contains("shower") -> 61
+        symbol.contains("fog") -> 45
+        symbol.contains("cloudy") && !symbol.contains("partly") -> 3
+        symbol.contains("partlycloudy") || symbol.contains("fair") -> 2
+        symbol.contains("clearsky") -> 0
+        else -> 1
+    }
+
+    private fun fetchFromOpenMeteo(latitude: Double, longitude: Double): CurrentWeatherData {
         val forecastUrl = "https://api.open-meteo.com/v1/forecast" +
             "?latitude=$latitude&longitude=$longitude" +
             "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m" +
@@ -151,10 +221,8 @@ object OpenMeteoClient {
 
                     todayHourly.add(
                         HourlySnapshot(
-                            dateKey = curDate,
-                            timeLabel = ts.substringAfter("T").take(5),
-                            temperature = hTemp,
-                            apparentTemp = safeArrDouble(hourly.optJSONArray("apparent_temperature"), i) ?: hTemp,
+                            dateKey = curDate, timeLabel = ts.substringAfter("T").take(5),
+                            temperature = hTemp, apparentTemp = safeArrDouble(hourly.optJSONArray("apparent_temperature"), i) ?: hTemp,
                             humidity = (safeArrDouble(hourly.optJSONArray("relative_humidity_2m"), i) ?: 0.0).toInt(),
                             precipitation = safeArrDouble(hourly.optJSONArray("precipitation"), i) ?: 0.0,
                             cloudCover = (safeArrDouble(hourly.optJSONArray("cloud_cover"), i) ?: 0.0).toInt(),
@@ -192,9 +260,7 @@ object OpenMeteoClient {
                     "Pelin" to safeObjDouble(aqCur, "mugwort_pollen"),
                     "Zeytin" to safeObjDouble(aqCur, "olive_pollen"),
                     "Kanaryaotu" to safeObjDouble(aqCur, "ragweed_pollen")
-                ).mapNotNull { (label, v) ->
-                    if (v != null && v > 0.0) "$label: ${String.format(Locale.US, "%.0f", v)}" else null
-                }
+                ).mapNotNull { (label, v) -> if (v != null && v > 0.0) "$label: ${String.format(Locale.US, "%.0f", v)}" else null }
                 if (pollens.isNotEmpty()) extra.put("pollen_text", pollens.joinToString(", "))
             }
         }
@@ -233,6 +299,8 @@ object OpenMeteoClient {
             requestMethod = "GET"
             connectTimeout = 20_000
             readTimeout = 20_000
+            setRequestProperty("User-Agent", APP_USER_AGENT)
+            setRequestProperty("Accept", "application/json")
         }
         return try {
             val code = conn.responseCode
