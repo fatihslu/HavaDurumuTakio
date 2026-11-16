@@ -9,6 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.example.havadurumutakip.data.WeatherRepository
 import java.util.concurrent.TimeUnit
 
@@ -18,7 +19,8 @@ class WeatherSyncWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val result = WeatherRepository.measureAndSaveAll(applicationContext)
+        val source = inputData.getString("source") ?: "Otomatik"
+        val result = WeatherRepository.measureAndSaveAll(applicationContext, source)
         return if (result.isSuccess) Result.success() else Result.retry()
     }
 
@@ -30,19 +32,23 @@ class WeatherSyncWorker(
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
-            val periodicRequest = PeriodicWorkRequestBuilder<WeatherSyncWorker>(1, TimeUnit.HOURS)
+            val periodicRequest = PeriodicWorkRequestBuilder<WeatherSyncWorker>(30, TimeUnit.MINUTES)
                 .setConstraints(constraints)
+                .setInputData(workDataOf("source" to "Otomatik (30dk)"))
                 .build()
 
             WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
                 PERIODIC_WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 periodicRequest
             )
+            WeatherAlarmReceiver.scheduleNext(context)
         }
 
-        fun triggerOneTime(context: Context) {
-            val request = OneTimeWorkRequestBuilder<WeatherSyncWorker>().build()
+        fun triggerOneTime(context: Context, source: String = "Widget") {
+            val request = OneTimeWorkRequestBuilder<WeatherSyncWorker>()
+                .setInputData(workDataOf("source" to source))
+                .build()
             WorkManager.getInstance(context.applicationContext).enqueue(request)
         }
     }
